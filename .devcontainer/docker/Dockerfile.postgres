@@ -1,0 +1,11 @@
+FROM pgvector/pgvector:pg16
+
+RUN apt-get update && apt-get install -y \
+    postgresql-server-dev-15 \
+    git \
+    make
+
+RUN git clone https://github.com/tembo-io/pgmq.git \
+    && cd pgmq/pgmq-extension \
+    && make \
+    && make install

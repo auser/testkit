@@ -1,0 +1,27 @@
+[package]
+name = "testkit"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-trait = "0.1.83"
+deadpool-postgres = { version = "0.14.1", optional = true }
+mysql_async = { version = "0.34.2", optional = true }
+once_cell = "1.20.2"
+url = { version = "2.5.4", features = ["serde"] }
+
+env_logger = { version = "0.11.6", optional = true }
+tracing = { version = "0.1.41", optional = true }
+tracing-subscriber = { version = "0.3.19", optional = true }
+
+tokio = { version = "1.39.0", features = ["full"] }
+tokio-postgres = { version = "0.7.12", optional = true }
+wait-timeout = "0.2.0"
+sqlx = { version = "0.8.2", features = ["runtime-tokio", "mysql"] }
+
+
+[features]
+default = ["postgres", "tracing"]
+postgres = ["dep:deadpool-postgres", "dep:tokio-postgres"]
+mysql = ["dep:mysql_async"]
+tracing = ["dep:tracing", "dep:tracing-subscriber", "dep:env_logger"]

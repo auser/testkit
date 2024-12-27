@@ -1,0 +1,65 @@
+services:      
+  postgres:
+    build: 
+      context: .
+      dockerfile: docker/Dockerfile.postgres
+    restart: always
+    env_file: ./.env
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    expose:
+      - "5442:5432"
+    ports:
+      - "5442:5432"
+
+  mysql:
+    build: 
+      context: .
+      dockerfile: docker/Dockerfile.mysql
+    restart: always
+    env_file: ./.env
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    expose:
+      - "3306:3306"
+    ports:
+      - "3336:3306"
+
+
+  development:
+    build: 
+      context: .
+      dockerfile: docker/Dockerfile
+
+    privileged: true
+    init: true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    
+    volumes:
+      - ..:/workspace:cached
+      - ~/.ssh:/home/host-ssh:cached
+      - /var/run/docker.sock:/var/run/docker.sock
+      - target:/workspace/target
+
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT}/${POSTGRES_DB}?sslmode=disable
+
+    env_file: ./.env
+
+    # Overrides default command so things don't shut down after the process ends.
+    command: sleep infinity
+
+    working_dir: /workspace
+
+volumes:
+  target:
+  node_modules:
