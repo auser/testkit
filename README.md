@@ -140,7 +140,8 @@ Contributions are welcome! Here's how you can help:
    - MySQL
    - SQLite
 3. Copy `.env.example` to `.env` and configure your database URLs
-4. Run tests: `cargo test --all-features`
+4. Copy `.envrc.example` to `.envrc` and configure your environment variables in development
+5. Run tests: `cargo test --all-features`
 
 ## License
 
