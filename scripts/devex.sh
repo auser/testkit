@@ -5,7 +5,7 @@ source $DIR_PATH/colors.sh
 
 IMAGE_NAME="auser/testkit"
 IMAGE_TAG="latest"
-CONTAINER_NAME="testkit_devcontainer-development"
+CONTAINER_NAME="db-testkit_devcontainer-development-1"
 FORCE_REBUILD_IMAGE=false
 DOCKER_DIR=".devcontainer"
 RUN_PRIVILEGED=false
