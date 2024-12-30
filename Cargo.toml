@@ -1,5 +1,5 @@
 [package]
-name = "testkit"
+name = "db-testkit"
 version = "0.1.0"
 edition = "2021"
 description = "A test toolkit for database testing in Rust"

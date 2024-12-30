@@ -21,7 +21,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-testkit = { version = "0.1.0", features = ["postgres"] }  # or other backends
+db-testkit = { version = "0.1.0", features = ["postgres"] }  # or other backends
 ```
 
 Available features:
@@ -35,7 +35,7 @@ Available features:
 ### PostgreSQL Example
 
 ```rust
-use testkit::with_test_db;
+use db_testkit::with_test_db;
 
 #[tokio::test]
 async fn test_with_postgres() {
@@ -71,7 +71,7 @@ async fn test_with_postgres() {
 ### SQLite Example
 
 ```rust
-use testkit::with_sqlite_test_db;
+use db_testkit::with_sqlite_test_db;
 
 #[tokio::test]
 async fn test_with_sqlite() {
