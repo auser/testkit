@@ -1,5 +1,23 @@
-pub mod db;
+pub mod backend;
+pub mod backends;
+pub mod env;
 pub mod error;
-pub mod macs;
+pub mod macros;
+pub mod migrations;
+pub mod pool;
+pub mod template;
+pub mod tests;
+pub mod util;
+pub mod wrapper;
 
-pub use macs::{with_configured_test_db, with_test_db};
+pub use backend::{Connection, DatabaseBackend, DatabasePool};
+#[cfg(feature = "mysql")]
+pub use backends::MySqlBackend;
+#[cfg(feature = "postgres")]
+pub use backends::PostgresBackend;
+#[cfg(feature = "sqlx-postgres")]
+pub use backends::SqlxPostgresBackend;
+pub use error::{PoolError, Result};
+pub use migrations::{RunSql, SqlSource};
+pub use pool::PoolConfig;
+pub use template::{DatabaseName, DatabaseTemplate, ImmutableDatabase};
