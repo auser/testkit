@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "A test toolkit for database testing in Rust"
 license = "MIT"
+repository = "https://github.com/auser/testkit"
 
 [dependencies]
 tokio = { version = "1.35.1", features = ["full"] }
