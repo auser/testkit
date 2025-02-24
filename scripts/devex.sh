@@ -1,16 +1,53 @@
 #!/usr/bin/env bash
 
+set -euo pipefail
 DIR_PATH=$(realpath $(dirname "$0"))
-source $DIR_PATH/colors.sh
 
-IMAGE_NAME="auser/testkit"
+IMAGE_NAME="auser/dbtestkit"
 IMAGE_TAG="latest"
-CONTAINER_NAME="db-testkit_devcontainer-development-1"
+CONTAINER_NAME="db_testkit_devcontainer-development"
 FORCE_REBUILD_IMAGE=false
-DOCKER_DIR=".devcontainer"
+DEVCONTAINER_DIR=".devcontainer"  
+DOCKER_DIR="$DEVCONTAINER_DIR/docker"
 RUN_PRIVILEGED=false
 VERBOSE="false"
+FORCE_RESET_CONTAINER=true
+FORCE_REBUILD_IMAGE=true
+
 declare -a MOUNTS=("$(pwd):/workspace")
+
+export Color_Off='\033[0m'
+export Black='\033[0;30m'
+export Red='\033[0;31m'
+export Green='\033[0;32m'
+export Yellow='\033[0;33m'
+export Blue='\033[0;34m'
+export Purple='\033[0;35m'
+export Cyan='\033[0;36m'
+export White='\033[0;37m'
+export BBlack='\033[1;30m'
+export BRed='\033[1;31m'
+export BGreen='\033[1;32m'
+export BYellow='\033[1;33m'
+export BBlue='\033[1;34m'
+export BPurple='\033[1;35m'
+export BCyan='\033[1;36m'
+export BWhite='\033[1;37m'
+export UBlack='\033[4;30m'
+export URed='\033[4;31m'
+export UGreen='\033[4;32m'
+export UYellow='\033[4;33m'
+export UBlue='\033[4;34m'
+export UPurple='\033[4;35m'
+export UCyan='\033[4;36m'
+export UWhite='\033[4;37m'
+
+DEVCONTAINER_BIN=$(which devcontainer 2>/dev/null)
+if [[ -z "$DEVCONTAINER_BIN" ]]; then
+    printf "${RED}Error: devcontainer CLI not found. Please install it first.${COLOR_OFF}\n"
+    exit 1
+fi
+
 
 # docker_service_address=$(docker network inspect kind -f "{{(index .IPAM.Config 1).Subnet}}" | cut -d '.' -f1,2,3)
 # my_ip=$(ipconfig getifaddr en0)
@@ -27,9 +64,9 @@ build_image() {
     fi
     local cmd=(docker build) 
     cmd+=(-t "$IMAGE_NAME:$IMAGE_TAG")
-    cmd+=(-f $DOCKER_DIR/Dockerfile.base)
+    cmd+=(-f $DOCKER_DIR/Dockerfile)
     [[ "$FORCE_REBUILD_IMAGE" == "true" ]] && cmd+=(--no-cache)
-    cmd+=($DOCKER_DIR)
+    cmd+=($DEVCONTAINER_DIR)
 
     if [[ "$VERBOSE" == "true" ]]; then
         printf "${BBlack}%s" echo -e "${BBlack}-------- Docker command --------${Color_Off}"
@@ -69,11 +106,11 @@ start_container() {
 
         if [[ "$VERBOSE" == "true" ]]; then
             echo_color "BBlack" "-------- Docker command --------"
-            echo_color "Green" "${cmd[@}"
+            echo_color "Green" "${cmd[@]}"
         fi
 
         # Execute the command
-        "${cmd[@}"
+        "${cmd[@]}"
 
         sleep 2
     fi
@@ -88,12 +125,33 @@ exec_instance() {
     docker exec -it ${docker_instance} /usr/bin/zsh
 }
 
+reset_container() {
+    echo -e "${BBlack}${Yellow}Resetting container...${Color_Off}"
+    ARGS=""
+
+    echo "FORCE_REBUILD_IMAGE: $FORCE_REBUILD_IMAGE"
+    echo "FORCE_RESET_CONTAINER: $FORCE_RESET_CONTAINER"
+    if [[ "$FORCE_REBUILD_IMAGE" == "true" ]]; then
+        ARGS="--build-no-cache"
+    fi
+
+    if [[ "$FORCE_RESET_CONTAINER" == "true" ]]; then
+        ARGS="$ARGS --remove-existing-container"
+    fi
+
+    echo "$DEVCONTAINER_BIN up $ARGS"
+    $DEVCONTAINER_BIN up $ARGS
+}
+
+
 parse_opts() {
     local opt
-    while getopts "n:v" opt; do
+    while getopts "n:vfr" opt; do
         case ${opt} in
-            n ) CLUSTER_NAME=$OPTARG ;;
             v ) VERBOSE="true" ;;
+            n ) CONTAINER_NAME=$OPTARG ;;
+            f ) FORCE_REBUILD_IMAGE="false" ;;
+            r ) FORCE_RESET_CONTAINER="false" ;;
             \? ) echo "Invalid option: $OPTARG" 1>&2; exit 1 ;;
         esac
     done
@@ -102,14 +160,16 @@ parse_opts() {
 help() {
     echo -e "${BGreen}Usage: $(basename "$0") [options] <command>${Color_Off}
 Options:
-  -n  Name of the cluster (default: $CLUSTER_NAME)
+  -n  Name of the container (default: $CONTAINER_NAME)
   -v  Verbose mode
+  -f  Do not force rebuild image
+  -r  Do not force reset container
 
 Commands:
   ${Green}build${Color_Off}             Build the Docker image
   ${Green}start${Color_Off}             Start the Docker container
   ${Green}exec${Color_Off}              Exec into the container
-  ${Green}reset${Color_Off}             Reset the cluster
+  ${Green}reset${Color_Off}             Reset the container
 "
     exit 1
 }
@@ -124,7 +184,7 @@ main() {
         build) build_image ;;
         start) start_container ;;
         exec) exec_instance ;;
-        reset) reset_cluster ;;
+        reset) reset_container ;;
         *) help ;;
     esac
 }

@@ -27,10 +27,16 @@ const SQL_SCRIPTS: &[&str] = &[
 
 #[tokio::test]
 #[cfg(feature = "postgres")]
+async fn test_get_postgres_url() {
+    let url = get_postgres_url().unwrap();
+    assert!(url.contains("postgres"));
+}
+
+#[tokio::test]
+#[cfg(feature = "postgres")]
 async fn test_postgres_template() {
-    let backend = PostgresBackend::new(&get_postgres_url().unwrap())
-        .await
-        .unwrap();
+    let postgres_url = get_postgres_url().unwrap();
+    let backend = PostgresBackend::new(&postgres_url).await.unwrap();
 
     let template = DatabaseTemplate::new(backend, PoolConfig::default(), 5)
         .await

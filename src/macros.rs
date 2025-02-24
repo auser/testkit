@@ -88,6 +88,7 @@ impl<'a, B: DatabaseBackend> TestDatabase<'a, B> {
 ///     }).await;
 /// }
 /// ```
+#[cfg(feature = "postgres")]
 #[macro_export]
 macro_rules! with_test_db {
     ($f:expr) => {{

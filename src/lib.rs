@@ -10,6 +10,8 @@ pub mod tests;
 pub mod util;
 pub mod wrapper;
 
+pub mod prelude;
+
 pub use backend::{Connection, DatabaseBackend, DatabasePool};
 #[cfg(feature = "mysql")]
 pub use backends::MySqlBackend;

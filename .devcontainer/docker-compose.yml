@@ -7,6 +7,11 @@ services:
     env_file: ./.env
     environment:
       POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: testkit
+      POSTGRES_PORT: 5442
+      POSTGRES_HOST: postgres
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -43,7 +48,9 @@ services:
     init: true
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    
+    depends_on:
+      - postgres
+      - mysql
     volumes:
       - ..:/workspace:cached
       - ~/.ssh:/home/host-ssh:cached
@@ -51,7 +58,7 @@ services:
       - target:/workspace/target
 
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT}/${POSTGRES_DB}?sslmode=disable
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?sslmode=disable
 
     env_file: ./.env
 
