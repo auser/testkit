@@ -10,10 +10,13 @@ use crate::{
 
 pub struct MySqlConnection {
     pub(crate) conn: Conn,
+    connection_string: String,
 }
 
 #[async_trait]
 impl Connection for MySqlConnection {
+    type Transaction<'conn> = Transaction<'conn, Postgres>;
+
     async fn is_valid(&self) -> bool {
         self.conn.ping().await.is_ok()
     }
@@ -32,6 +35,10 @@ impl Connection for MySqlConnection {
             .await
             .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
         Ok(())
+    }
+
+    fn connection_string(&self) -> String {
+        self.connection_string.clone()
     }
 }
 
@@ -186,12 +193,15 @@ impl DatabaseBackend for MySqlBackend {
 #[derive(Debug, Clone)]
 pub struct MySqlPool {
     pool: MyPool,
+    connection_string: String,
 }
 
 impl MySqlPool {
     pub fn new(opts: Opts) -> Self {
+        let connection_string = opts.to_string();
         Self {
             pool: MyPool::new(opts),
+            connection_string,
         }
     }
 }
@@ -207,7 +217,10 @@ impl DatabasePool for MySqlPool {
             .await
             .map_err(|e| PoolError::ConnectionAcquisitionFailed(e.to_string()))?;
 
-        Ok(MySqlConnection { conn })
+        Ok(MySqlConnection {
+            conn,
+            connection_string: self.connection_string.clone(),
+        })
     }
 
     async fn release(&self, _conn: Self::Connection) -> Result<()> {

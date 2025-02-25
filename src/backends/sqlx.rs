@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use async_trait::async_trait;
-use sqlx::{postgres::PgPoolOptions, PgPool};
+use sqlx::{postgres::PgPoolOptions, PgPool, Postgres, Transaction};
 use tokio_postgres::{Config, NoTls};
 use url::Url;
 
@@ -14,12 +14,15 @@ use crate::{
 
 pub struct SqlxPostgresConnection {
     pub(crate) pool: PgPool,
+    connection_string: String,
 }
 
 #[async_trait]
 impl Connection for SqlxPostgresConnection {
+    type Transaction<'conn> = Transaction<'conn, Postgres>;
+
     async fn is_valid(&self) -> bool {
-        self.pool.acquire().await.is_ok()
+        sqlx::query("SELECT 1").execute(&self.pool).await.is_ok()
     }
 
     async fn reset(&mut self) -> Result<()> {
@@ -36,6 +39,26 @@ impl Connection for SqlxPostgresConnection {
             .await
             .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
         Ok(())
+    }
+
+    async fn begin(&mut self) -> Result<Self::Transaction<'_>> {
+        self.pool
+            .begin()
+            .await
+            .map_err(|e| PoolError::TransactionError(e.to_string()))
+    }
+
+    fn connection_string(&self) -> String {
+        self.connection_string.clone()
+    }
+}
+
+impl SqlxPostgresConnection {
+    /// Get a reference to the underlying SQLx PgPool
+    ///
+    /// This allows direct use of SQLx queries with this connection
+    pub fn sqlx_pool(&self) -> &PgPool {
+        &self.pool
     }
 }
 
@@ -120,7 +143,10 @@ impl DatabaseBackend for SqlxPostgresBackend {
             .await
             .map_err(|e| PoolError::PoolCreationFailed(e.to_string()))?;
 
-        Ok(SqlxPostgresPool { pool })
+        Ok(SqlxPostgresPool {
+            pool,
+            connection_string: url,
+        })
     }
 
     async fn terminate_connections(&self, name: &DatabaseName) -> Result<()> {
@@ -187,6 +213,20 @@ impl DatabaseBackend for SqlxPostgresBackend {
 #[derive(Debug, Clone)]
 pub struct SqlxPostgresPool {
     pool: PgPool,
+    connection_string: String,
+}
+
+impl SqlxPostgresPool {
+    pub fn new(url: &str, max_size: usize) -> Result<Self> {
+        let pool = PgPoolOptions::new()
+            .max_connections(max_size as u32)
+            .connect_lazy(url)
+            .map_err(|e| PoolError::PoolCreationFailed(e.to_string()))?;
+        Ok(Self {
+            pool,
+            connection_string: url.to_string(),
+        })
+    }
 }
 
 #[async_trait]
@@ -196,6 +236,7 @@ impl DatabasePool for SqlxPostgresPool {
     async fn acquire(&self) -> Result<Self::Connection> {
         Ok(SqlxPostgresConnection {
             pool: self.pool.clone(),
+            connection_string: self.connection_string.clone(),
         })
     }
 

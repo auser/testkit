@@ -12,10 +12,13 @@ use crate::{
 
 pub struct SqliteConnection {
     pub pool: Pool<Sqlite>,
+    connection_string: String,
 }
 
 #[async_trait]
 impl Connection for SqliteConnection {
+    type Transaction<'conn> = Transaction<'conn, Sqlite>;
+
     async fn is_valid(&self) -> bool {
         sqlx::query("SELECT 1").execute(&self.pool).await.is_ok()
     }
@@ -31,6 +34,17 @@ impl Connection for SqliteConnection {
             .await
             .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
         Ok(())
+    }
+
+    async fn begin(&mut self) -> Result<Self::Transaction<'_>> {
+        self.pool
+            .begin()
+            .await
+            .map_err(|e| PoolError::TransactionError(e.to_string()))
+    }
+
+    fn connection_string(&self) -> String {
+        self.connection_string.clone()
     }
 }
 
@@ -99,5 +113,40 @@ impl DatabaseBackend for SqliteBackend {
             .await
             .map_err(|e| PoolError::PoolCreationFailed(e.to_string()))?;
         Ok(pool)
+    }
+}
+
+#[derive(Clone)]
+pub struct SqlitePool {
+    pool: Pool<Sqlite>,
+    connection_string: String,
+}
+
+impl SqlitePool {
+    pub async fn new(url: &str) -> Result<Self> {
+        let pool = SqlitePool::connect(url)
+            .await
+            .map_err(|e| PoolError::PoolCreationFailed(e.to_string()))?;
+        Ok(Self {
+            pool,
+            connection_string: url.to_string(),
+        })
+    }
+}
+
+#[async_trait]
+impl DatabasePool for SqlitePool {
+    type Connection = SqliteConnection;
+
+    async fn acquire(&self) -> Result<Self::Connection> {
+        Ok(SqliteConnection {
+            pool: self.pool.clone(),
+            connection_string: self.connection_string.clone(),
+        })
+    }
+
+    async fn release(&self, _conn: Self::Connection) -> Result<()> {
+        // Connection is automatically returned to the pool when dropped
+        Ok(())
     }
 }

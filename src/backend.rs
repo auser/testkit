@@ -5,6 +5,11 @@ use crate::{error::Result, pool::PoolConfig, template::DatabaseName};
 /// A trait for database connections that can be pooled
 #[async_trait]
 pub trait Connection: Send {
+    /// The transaction type for this connection
+    type Transaction<'conn>: Send + 'conn
+    where
+        Self: 'conn;
+
     /// Check if the connection is valid
     async fn is_valid(&self) -> bool;
 
@@ -13,6 +18,12 @@ pub trait Connection: Send {
 
     /// Execute a SQL query
     async fn execute(&mut self, sql: &str) -> Result<()>;
+
+    /// Begin a new transaction
+    async fn begin(&mut self) -> Result<Self::Transaction<'_>>;
+
+    /// Get the database URL for this connection
+    fn connection_string(&self) -> String;
 }
 
 /// A trait for database backends that can create and manage databases

@@ -26,6 +26,10 @@ pub enum PoolError {
     /// Migration error
     #[error("Migration error: {0}")]
     MigrationError(String),
+
+    /// Transaction error
+    #[error("Transaction error: {0}")]
+    TransactionError(String),
 }
 
 /// Result type for database pool operations

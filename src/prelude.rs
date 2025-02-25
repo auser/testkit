@@ -11,3 +11,4 @@ pub use crate::env::*;
 pub use crate::macros::TestDatabase;
 pub use crate::template::{DatabaseName, DatabaseTemplate, ImmutableDatabase};
 pub use crate::with_test_db;
+pub use crate::SqlSource;
