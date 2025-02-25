@@ -26,7 +26,7 @@ dotenvy = "0.15.7"
 tempfile = "3.9.0"
 
 [features]
-default = ["postgres"]
+default = ["sqlx-postgres"]
 postgres = ["dep:tokio-postgres", "dep:sqlx"]
 mysql = ["dep:mysql_async"]
 sqlx-postgres = ["dep:sqlx"]

@@ -30,6 +30,24 @@ pub enum PoolError {
     /// Transaction error
     #[error("Transaction error: {0}")]
     TransactionError(String),
+
+    /// SQLx error
+    // #[cfg(any(
+    //     feature = "sqlx-postgres",
+    //     feature = "sqlx-mysql",
+    //     feature = "sqlx-sqlite"
+    // ))]
+    #[error("SQLx error: {0}")]
+    SqlxError(sqlx::Error),
+
+    #[error("SQLx error: {0}")]
+    SqlxErrorMut(&'static mut sqlx::Error),
+}
+
+impl From<sqlx::Error> for PoolError {
+    fn from(error: sqlx::Error) -> Self {
+        PoolError::SqlxError(error)
+    }
 }
 
 /// Result type for database pool operations

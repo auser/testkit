@@ -47,7 +47,7 @@ where
 impl<B: DatabaseBackend + Clone + Send + 'static> DatabaseTemplate<B> {
     /// Create a new template database
     pub async fn new(backend: B, config: PoolConfig, max_replicas: usize) -> Result<Self> {
-        let name = DatabaseName::new("template");
+        let name = DatabaseName::new("testkit");
         backend.create_database(&name).await?;
 
         Ok(Self {
@@ -155,7 +155,7 @@ impl<'a, B: DatabaseBackend + Clone + Send + 'static> Drop for ImmutableDatabase
         let backend = self.backend.clone();
         let name = self.name.clone();
 
-        tokio::spawn(async move {
+        tokio::task::spawn_blocking(move || async move {
             if let Err(e) = backend.drop_database(&name).await {
                 tracing::error!("Failed to drop database: {}", e);
             }

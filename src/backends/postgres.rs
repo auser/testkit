@@ -23,7 +23,7 @@ pub struct PostgresConnection {
 impl<'c> Executor<'c> for &'c mut PostgresConnection {
     type Database = Postgres;
 
-    fn fetch_many<'e, 'q: 'e, E: 'q>(
+    fn fetch_many<'e, 'q: 'e, E: Execute<'q, Self::Database> + 'q>(
         self,
         query: E,
     ) -> Pin<
@@ -35,18 +35,16 @@ impl<'c> Executor<'c> for &'c mut PostgresConnection {
     >
     where
         'c: 'e,
-        E: Execute<'q, Self::Database>,
     {
         Box::pin(self.pool.fetch_many(query))
     }
 
-    fn fetch_optional<'e, 'q: 'e, E: 'q>(
+    fn fetch_optional<'e, 'q: 'e, E: Execute<'q, Self::Database> + 'q>(
         self,
         query: E,
     ) -> BoxFuture<'e, std::result::Result<Option<PgRow>, sqlx::Error>>
     where
         'c: 'e,
-        E: Execute<'q, Self::Database>,
     {
         self.pool.fetch_optional(query)
     }
@@ -62,13 +60,12 @@ impl<'c> Executor<'c> for &'c mut PostgresConnection {
         self.pool.prepare_with(sql, parameters)
     }
 
-    fn execute<'e, 'q: 'e, E: 'q>(
+    fn execute<'e, 'q: 'e, E: Execute<'q, Self::Database> + 'q>(
         self,
         query: E,
     ) -> BoxFuture<'e, std::result::Result<PgQueryResult, sqlx::Error>>
     where
         'c: 'e,
-        E: Execute<'q, Self::Database>,
     {
         self.pool.execute(query)
     }
@@ -168,12 +165,17 @@ impl PostgresBackend {
         url.set_path(name.as_str());
         url.to_string()
     }
+
+    pub async fn setup_test_db(connection_string: Option<String>) -> Result<PostgresPool> {
+        PostgresPool::setup_test_db(connection_string).await
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct PostgresPool {
     pub(crate) pool: PgPool,
     connection_string: String,
+    db_name: String,
 }
 
 impl PostgresPool {
@@ -185,7 +187,68 @@ impl PostgresPool {
         Ok(Self {
             pool,
             connection_string: url.to_string(),
+            db_name: String::new(),
         })
+    }
+
+    pub async fn setup_test_db(connection_string: Option<String>) -> Result<Self> {
+        // Use provided connection string or get from environment or use default
+        let base_url = connection_string
+            .or_else(|| std::env::var("DATABASE_URL").ok())
+            .unwrap_or_else(|| "postgres://postgres:postgres@localhost:5432/postgres".to_string());
+
+        tracing::debug!("Using base connection URL: {}", base_url);
+
+        // Connect to postgres database to create test database
+        let admin_pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&base_url)
+            .await
+            .map_err(|e| {
+                PoolError::PoolCreationFailed(format!("Failed to connect to {}: {}", base_url, e))
+            })?;
+
+        // Generate unique DB name
+        let db_name = format!(
+            "testkit_{}",
+            uuid::Uuid::new_v4().to_string().replace("-", "_")
+        );
+
+        // Create the test database
+        sqlx::query(&format!("CREATE DATABASE {}", db_name))
+            .execute(&admin_pool)
+            .await
+            .map_err(|e| PoolError::PoolCreationFailed(e.to_string()))?;
+
+        // Extract host, port, user, password from base URL
+        let url = url::Url::parse(&base_url).map_err(|e| PoolError::InvalidUrl(e.to_string()))?;
+
+        let host = url.host_str().unwrap_or("localhost");
+        let port = url.port().unwrap_or(5432);
+        let username = url.username();
+        let password = url.password().unwrap_or("");
+
+        // Connect to the new database
+        let new_db_url = format!(
+            "postgres://{}:{}@{}:{}/{}",
+            username, password, host, port, db_name
+        );
+
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&new_db_url)
+            .await
+            .map_err(|e| PoolError::PoolCreationFailed(e.to_string()))?;
+
+        Ok(Self {
+            pool,
+            connection_string: new_db_url,
+            db_name,
+        })
+    }
+
+    pub fn db_name(&self) -> &str {
+        &self.db_name
     }
 }
 

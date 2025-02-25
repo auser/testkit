@@ -17,6 +17,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - testkit
     expose:
       - "5442:5432"
     ports:
@@ -33,6 +35,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - testkit
     expose:
       - "3306:3306"
     ports:
@@ -44,6 +48,8 @@ services:
       context: .
       dockerfile: docker/Dockerfile
 
+    networks:
+      - testkit
     privileged: true
     init: true
     extra_hosts:
@@ -66,6 +72,10 @@ services:
     command: sleep infinity
 
     working_dir: /workspace
+
+networks:
+  testkit:
+    driver: bridge
 
 volumes:
   target:

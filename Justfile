@@ -52,8 +52,9 @@ reset-db:
 
 # List the test databases
 list-test-databases:
-    psql postgresql://postgres:postgres@postgres:5432/ -c "\l" | grep 'test_testkit' | awk '{print $1}'
+    psql postgresql://postgres:postgres@postgres:5432/ -c "\l" | grep 'testkit' | awk '{print $1}'
 
 # Cleanup the test databases
 clean-test-databases:
-    psql postgresql://postgres:postgres@postgres:5432/ -c "\l" | grep 'test_testkit' | awk '{print $1}' | xargs -I '{}' psql postgresql://postgres:postgres@postgres:5432/ -c "DROP DATABASE {}"
+    psql postgresql://postgres:postgres@postgres:5432/ -c "\l" | grep 'testkit' | awk '{print $1}' | xargs -I '{}' psql postgresql://postgres:postgres@postgres:5432/ -c "DROP DATABASE \"{}\""
+

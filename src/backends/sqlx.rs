@@ -1,8 +1,5 @@
-use std::str::FromStr;
-
 use async_trait::async_trait;
 use sqlx::{postgres::PgPoolOptions, PgPool, Postgres, Transaction};
-use tokio_postgres::{Config, NoTls};
 use url::Url;
 
 use crate::{
@@ -12,6 +9,7 @@ use crate::{
     template::DatabaseName,
 };
 
+#[derive(Debug, Clone)]
 pub struct SqlxPostgresConnection {
     pub(crate) pool: PgPool,
     connection_string: String,
@@ -34,10 +32,19 @@ impl Connection for SqlxPostgresConnection {
     }
 
     async fn execute(&mut self, sql: &str) -> Result<()> {
-        sqlx::query(sql)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+        // Split the SQL into individual statements
+        let statements: Vec<&str> = sql
+            .split(';')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        // Execute each statement separately
+        for stmt in statements {
+            sqlx::query(stmt).execute(&self.pool).await.map_err(|e| {
+                PoolError::DatabaseError(format!("Failed to execute '{}': {}", stmt, e))
+            })?;
+        }
         Ok(())
     }
 
@@ -60,18 +67,173 @@ impl SqlxPostgresConnection {
     pub fn sqlx_pool(&self) -> &PgPool {
         &self.pool
     }
+
+    pub async fn connect(&self) -> Result<PgPool> {
+        PgPoolOptions::new()
+            .connect(self.connection_string.as_str())
+            .await
+            .map_err(|e| PoolError::DatabaseError(e.to_string()))
+    }
+}
+
+impl<'c> sqlx::Executor<'c> for &'c SqlxPostgresConnection {
+    type Database = sqlx::Postgres;
+
+    fn fetch_many<'e, 'q: 'e, E: sqlx::Execute<'q, Self::Database> + 'q>(
+        self,
+        query: E,
+    ) -> futures::stream::BoxStream<
+        'e,
+        std::result::Result<
+            sqlx::Either<sqlx::postgres::PgQueryResult, sqlx::postgres::PgRow>,
+            sqlx::Error,
+        >,
+    > {
+        (&self.pool).fetch_many(query)
+    }
+
+    fn fetch_optional<'e, 'q: 'e, E: sqlx::Execute<'q, Self::Database> + 'q>(
+        self,
+        query: E,
+    ) -> futures::future::BoxFuture<
+        'e,
+        std::result::Result<Option<sqlx::postgres::PgRow>, sqlx::Error>,
+    > {
+        (&self.pool).fetch_optional(query)
+    }
+
+    fn prepare_with<'e, 'q: 'e>(
+        self,
+        sql: &'q str,
+        parameters: &'e [sqlx::postgres::PgTypeInfo],
+    ) -> futures::future::BoxFuture<
+        'e,
+        std::result::Result<sqlx::postgres::PgStatement<'q>, sqlx::Error>,
+    > {
+        (&self.pool).prepare_with(sql, parameters)
+    }
+
+    fn execute<'e, 'q: 'e, E: sqlx::Execute<'q, Self::Database> + 'q>(
+        self,
+        query: E,
+    ) -> futures::future::BoxFuture<
+        'e,
+        std::result::Result<sqlx::postgres::PgQueryResult, sqlx::Error>,
+    > {
+        (&self.pool).execute(query)
+    }
+
+    fn fetch_one<'e, 'q: 'e, E: sqlx::Execute<'q, Self::Database> + 'q>(
+        self,
+        query: E,
+    ) -> futures::future::BoxFuture<'e, std::result::Result<sqlx::postgres::PgRow, sqlx::Error>>
+    {
+        (&self.pool).fetch_one(query)
+    }
+
+    fn fetch_all<'e, 'q: 'e, E: sqlx::Execute<'q, Self::Database> + 'q>(
+        self,
+        query: E,
+    ) -> futures::future::BoxFuture<'e, std::result::Result<Vec<sqlx::postgres::PgRow>, sqlx::Error>>
+    {
+        (&self.pool).fetch_all(query)
+    }
+
+    fn describe<'e, 'q: 'e>(
+        self,
+        sql: &'q str,
+    ) -> futures::future::BoxFuture<
+        'e,
+        std::result::Result<sqlx::Describe<Self::Database>, sqlx::Error>,
+    > {
+        (&self.pool).describe(sql)
+    }
+}
+
+// Also implement for mutable references
+impl<'c> sqlx::Executor<'c> for &'c mut SqlxPostgresConnection {
+    type Database = sqlx::Postgres;
+
+    fn fetch_many<'e, 'q: 'e, E: sqlx::Execute<'q, Self::Database> + 'q>(
+        self,
+        query: E,
+    ) -> futures::stream::BoxStream<
+        'e,
+        std::result::Result<
+            sqlx::Either<sqlx::postgres::PgQueryResult, sqlx::postgres::PgRow>,
+            sqlx::Error,
+        >,
+    > {
+        (&self.pool).fetch_many(query)
+    }
+
+    fn fetch_optional<'e, 'q: 'e, E: sqlx::Execute<'q, Self::Database> + 'q>(
+        self,
+        query: E,
+    ) -> futures::future::BoxFuture<
+        'e,
+        std::result::Result<Option<sqlx::postgres::PgRow>, sqlx::Error>,
+    > {
+        (&self.pool).fetch_optional(query)
+    }
+
+    fn prepare_with<'e, 'q: 'e>(
+        self,
+        sql: &'q str,
+        parameters: &'e [sqlx::postgres::PgTypeInfo],
+    ) -> futures::future::BoxFuture<
+        'e,
+        std::result::Result<sqlx::postgres::PgStatement<'q>, sqlx::Error>,
+    > {
+        (&self.pool).prepare_with(sql, parameters)
+    }
+
+    fn execute<'e, 'q: 'e, E: sqlx::Execute<'q, Self::Database> + 'q>(
+        self,
+        query: E,
+    ) -> futures::future::BoxFuture<
+        'e,
+        std::result::Result<sqlx::postgres::PgQueryResult, sqlx::Error>,
+    > {
+        (&self.pool).execute(query)
+    }
+
+    fn fetch_one<'e, 'q: 'e, E: sqlx::Execute<'q, Self::Database> + 'q>(
+        self,
+        query: E,
+    ) -> futures::future::BoxFuture<'e, std::result::Result<sqlx::postgres::PgRow, sqlx::Error>>
+    {
+        (&self.pool).fetch_one(query)
+    }
+
+    fn fetch_all<'e, 'q: 'e, E: sqlx::Execute<'q, Self::Database> + 'q>(
+        self,
+        query: E,
+    ) -> futures::future::BoxFuture<'e, std::result::Result<Vec<sqlx::postgres::PgRow>, sqlx::Error>>
+    {
+        (&self.pool).fetch_all(query)
+    }
+
+    fn describe<'e, 'q: 'e>(
+        self,
+        sql: &'q str,
+    ) -> futures::future::BoxFuture<
+        'e,
+        std::result::Result<sqlx::Describe<Self::Database>, sqlx::Error>,
+    > {
+        (&self.pool).describe(sql)
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct SqlxPostgresBackend {
-    config: Config,
+    config: PgPoolOptions,
     url: Url,
 }
 
 impl SqlxPostgresBackend {
     pub fn new(connection_string: &str) -> Result<Self> {
-        let config = Config::from_str(connection_string)
-            .map_err(|e| PoolError::ConfigError(format!("Invalid connection string: {}", e)))?;
+        let config = PgPoolOptions::new();
         let url = Url::parse(connection_string)
             .map_err(|e| PoolError::ConfigError(format!("Invalid connection string: {}", e)))?;
 
@@ -83,6 +245,14 @@ impl SqlxPostgresBackend {
         url.set_path(name.as_str());
         url.to_string()
     }
+
+    pub async fn connect(&self) -> Result<PgPool> {
+        self.config
+            .clone()
+            .connect(self.url.as_str())
+            .await
+            .map_err(|e| PoolError::DatabaseError(e.to_string()))
+    }
 }
 
 #[async_trait]
@@ -91,20 +261,11 @@ impl DatabaseBackend for SqlxPostgresBackend {
     type Pool = SqlxPostgresPool;
 
     async fn create_database(&self, name: &DatabaseName) -> Result<()> {
-        let (client, connection) = self
-            .config
-            .connect(NoTls)
-            .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+        let pool = self.connect().await?;
 
-        tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                tracing::error!("Connection error: {}", e);
-            }
-        });
-
-        client
-            .execute(&format!(r#"CREATE DATABASE "{}""#, name), &[])
+        // Create the database
+        sqlx::query(&format!(r#"CREATE DATABASE "{}""#, name.as_str()))
+            .execute(&pool)
             .await
             .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
 
@@ -115,20 +276,11 @@ impl DatabaseBackend for SqlxPostgresBackend {
         // First terminate all connections
         self.terminate_connections(name).await?;
 
-        let (client, connection) = self
-            .config
-            .connect(NoTls)
-            .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+        let pool = self.connect().await?;
 
-        tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                tracing::error!("Connection error: {}", e);
-            }
-        });
-
-        client
-            .execute(&format!(r#"DROP DATABASE IF EXISTS "{}""#, name), &[])
+        // Drop the database
+        sqlx::query(&format!(r#"DROP DATABASE IF EXISTS "{}""#, name.as_str()))
+            .execute(&pool)
             .await
             .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
 
@@ -150,33 +302,20 @@ impl DatabaseBackend for SqlxPostgresBackend {
     }
 
     async fn terminate_connections(&self, name: &DatabaseName) -> Result<()> {
-        let (client, connection) = self
-            .config
-            .connect(NoTls)
-            .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+        let pool = self.connect().await?;
 
-        tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                tracing::error!("Connection error: {}", e);
-            }
-        });
-
-        client
-            .execute(
-                &format!(
-                    r#"
-                    SELECT pg_terminate_backend(pid)
-                    FROM pg_stat_activity
-                    WHERE datname = '{}'
-                    AND pid <> pg_backend_pid()
-                    "#,
-                    name
-                ),
-                &[],
-            )
-            .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+        sqlx::query(&format!(
+            r#"
+                SELECT pg_terminate_backend(pid)
+                FROM pg_stat_activity
+                WHERE datname = '{}'
+                AND pid <> pg_backend_pid()
+                "#,
+            name.as_str()
+        ))
+        .execute(&pool)
+        .await
+        .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
 
         Ok(())
     }
@@ -186,27 +325,26 @@ impl DatabaseBackend for SqlxPostgresBackend {
         name: &DatabaseName,
         template: &DatabaseName,
     ) -> Result<()> {
-        let (client, connection) = self
-            .config
-            .connect(NoTls)
-            .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+        let pool = self.connect().await?;
 
-        tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                tracing::error!("Connection error: {}", e);
-            }
-        });
-
-        client
-            .execute(
-                &format!(r#"CREATE DATABASE "{}" TEMPLATE "{}""#, name, template),
-                &[],
-            )
-            .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+        sqlx::query(&format!(
+            r#"CREATE DATABASE "{}" TEMPLATE "{}""#,
+            name.as_str(),
+            template.as_str()
+        ))
+        .execute(&pool)
+        .await
+        .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
 
         Ok(())
+    }
+
+    async fn connect(&self) -> Result<Self::Pool> {
+        let pool = self.connect().await?;
+        Ok(SqlxPostgresPool {
+            pool,
+            connection_string: self.url.to_string(),
+        })
     }
 }
 
@@ -243,6 +381,154 @@ impl DatabasePool for SqlxPostgresPool {
     async fn release(&self, _conn: Self::Connection) -> Result<()> {
         // Connection is automatically returned to the pool when dropped
         Ok(())
+    }
+}
+
+impl<'c> sqlx::Executor<'c> for &'c SqlxPostgresPool {
+    type Database = sqlx::Postgres;
+
+    fn fetch_many<'e, 'q: 'e, E: sqlx::Execute<'q, Self::Database> + 'q>(
+        self,
+        query: E,
+    ) -> futures::stream::BoxStream<
+        'e,
+        std::result::Result<
+            sqlx::Either<sqlx::postgres::PgQueryResult, sqlx::postgres::PgRow>,
+            sqlx::Error,
+        >,
+    > {
+        (&self.pool).fetch_many(query)
+    }
+
+    fn fetch_optional<'e, 'q: 'e, E: sqlx::Execute<'q, Self::Database> + 'q>(
+        self,
+        query: E,
+    ) -> futures::future::BoxFuture<
+        'e,
+        std::result::Result<Option<sqlx::postgres::PgRow>, sqlx::Error>,
+    > {
+        (&self.pool).fetch_optional(query)
+    }
+
+    fn prepare_with<'e, 'q: 'e>(
+        self,
+        sql: &'q str,
+        parameters: &'e [sqlx::postgres::PgTypeInfo],
+    ) -> futures::future::BoxFuture<
+        'e,
+        std::result::Result<sqlx::postgres::PgStatement<'q>, sqlx::Error>,
+    > {
+        (&self.pool).prepare_with(sql, parameters)
+    }
+
+    fn execute<'e, 'q: 'e, E: sqlx::Execute<'q, Self::Database> + 'q>(
+        self,
+        query: E,
+    ) -> futures::future::BoxFuture<
+        'e,
+        std::result::Result<sqlx::postgres::PgQueryResult, sqlx::Error>,
+    > {
+        (&self.pool).execute(query)
+    }
+
+    fn fetch_one<'e, 'q: 'e, E: sqlx::Execute<'q, Self::Database> + 'q>(
+        self,
+        query: E,
+    ) -> futures::future::BoxFuture<'e, std::result::Result<sqlx::postgres::PgRow, sqlx::Error>>
+    {
+        (&self.pool).fetch_one(query)
+    }
+
+    fn fetch_all<'e, 'q: 'e, E: sqlx::Execute<'q, Self::Database> + 'q>(
+        self,
+        query: E,
+    ) -> futures::future::BoxFuture<'e, std::result::Result<Vec<sqlx::postgres::PgRow>, sqlx::Error>>
+    {
+        (&self.pool).fetch_all(query)
+    }
+
+    fn describe<'e, 'q: 'e>(
+        self,
+        sql: &'q str,
+    ) -> futures::future::BoxFuture<
+        'e,
+        std::result::Result<sqlx::Describe<Self::Database>, sqlx::Error>,
+    > {
+        (&self.pool).describe(sql)
+    }
+}
+
+impl<'c> sqlx::Executor<'c> for &'c mut SqlxPostgresPool {
+    type Database = sqlx::Postgres;
+
+    fn fetch_many<'e, 'q: 'e, E: sqlx::Execute<'q, Self::Database> + 'q>(
+        self,
+        query: E,
+    ) -> futures::stream::BoxStream<
+        'e,
+        std::result::Result<
+            sqlx::Either<sqlx::postgres::PgQueryResult, sqlx::postgres::PgRow>,
+            sqlx::Error,
+        >,
+    > {
+        (&self.pool).fetch_many(query)
+    }
+
+    fn fetch_optional<'e, 'q: 'e, E: sqlx::Execute<'q, Self::Database> + 'q>(
+        self,
+        query: E,
+    ) -> futures::future::BoxFuture<
+        'e,
+        std::result::Result<Option<sqlx::postgres::PgRow>, sqlx::Error>,
+    > {
+        (&self.pool).fetch_optional(query)
+    }
+
+    fn prepare_with<'e, 'q: 'e>(
+        self,
+        sql: &'q str,
+        parameters: &'e [sqlx::postgres::PgTypeInfo],
+    ) -> futures::future::BoxFuture<
+        'e,
+        std::result::Result<sqlx::postgres::PgStatement<'q>, sqlx::Error>,
+    > {
+        (&self.pool).prepare_with(sql, parameters)
+    }
+
+    fn execute<'e, 'q: 'e, E: sqlx::Execute<'q, Self::Database> + 'q>(
+        self,
+        query: E,
+    ) -> futures::future::BoxFuture<
+        'e,
+        std::result::Result<sqlx::postgres::PgQueryResult, sqlx::Error>,
+    > {
+        (&self.pool).execute(query)
+    }
+
+    fn fetch_one<'e, 'q: 'e, E: sqlx::Execute<'q, Self::Database> + 'q>(
+        self,
+        query: E,
+    ) -> futures::future::BoxFuture<'e, std::result::Result<sqlx::postgres::PgRow, sqlx::Error>>
+    {
+        (&self.pool).fetch_one(query)
+    }
+
+    fn fetch_all<'e, 'q: 'e, E: sqlx::Execute<'q, Self::Database> + 'q>(
+        self,
+        query: E,
+    ) -> futures::future::BoxFuture<'e, std::result::Result<Vec<sqlx::postgres::PgRow>, sqlx::Error>>
+    {
+        (&self.pool).fetch_all(query)
+    }
+
+    fn describe<'e, 'q: 'e>(
+        self,
+        sql: &'q str,
+    ) -> futures::future::BoxFuture<
+        'e,
+        std::result::Result<sqlx::Describe<Self::Database>, sqlx::Error>,
+    > {
+        (&self.pool).describe(sql)
     }
 }
 
@@ -285,14 +571,15 @@ mod tests {
         // Initialize template with a table
         template
             .initialize_template(|conn| async move {
-                sqlx::query(
-                    "CREATE TABLE test (id SERIAL PRIMARY KEY, value TEXT);
-                     INSERT INTO test (value) VALUES ($1);",
-                )
-                .bind("test_value")
-                .execute(&conn.pool)
-                .await
-                .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+                sqlx::query("CREATE TABLE test (id SERIAL PRIMARY KEY, value TEXT);")
+                    .execute(&conn.pool)
+                    .await
+                    .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+                sqlx::query("INSERT INTO test (value) VALUES ($1)")
+                    .bind("test_value")
+                    .execute(&conn.pool)
+                    .await
+                    .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
                 Ok(())
             })
             .await
@@ -332,5 +619,11 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(row2.0, "test2");
+
+        let row0: (i32,) = sqlx::query_as("SELECT 1")
+            .fetch_one(&conn1.pool)
+            .await
+            .unwrap();
+        assert_eq!(row0.0, 1);
     }
 }

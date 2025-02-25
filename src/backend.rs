@@ -34,6 +34,9 @@ pub trait DatabaseBackend: Send + Sync + Clone {
     /// The type of pool this backend provides
     type Pool: DatabasePool<Connection = Self::Connection>;
 
+    /// Connect to the database
+    async fn connect(&self) -> Result<Self::Pool>;
+
     /// Create a new database with the given name
     async fn create_database(&self, name: &DatabaseName) -> Result<()>;
 

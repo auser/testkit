@@ -1,13 +1,3 @@
-#[cfg(test)]
-use crate::{
-    backend::{Connection, DatabasePool},
-    backends::PostgresBackend,
-    env::get_postgres_url,
-    migrations::{RunSql, SqlSource},
-    pool::PoolConfig,
-    template::DatabaseTemplate,
-};
-
 #[cfg(all(test, feature = "mysql"))]
 use crate::{backends::MySqlBackend, env::get_mysql_url};
 
