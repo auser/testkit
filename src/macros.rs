@@ -44,11 +44,14 @@ use crate::{backends::sqlite::SqliteBackend, env::get_sqlite_url};
 #[macro_export]
 macro_rules! with_test_db {
     // Version with custom URL and type annotation
-    ($url:expr, |$db:ident: $ty:ty| $test:expr) => {
+    (|$db:ident: $ty:ty| $test:expr) => {
         async {
+            let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+                "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable".to_string()
+            });
             // Create backend
             #[cfg(feature = "postgres")]
-            let backend = $crate::backends::postgres::PostgresBackend::new($url)
+            let backend = $crate::backends::postgres::PostgresBackend::new(&url)
                 .await
                 .expect("Failed to create database backend");
 
@@ -57,10 +60,41 @@ macro_rules! with_test_db {
                 .expect("Failed to create database backend");
 
             // Create test database
-            let $db: $ty =
-                $crate::test_db::TestDatabase::new(backend, $crate::pool::PoolConfig::default())
-                    .await
-                    .expect("Failed to create test database");
+            let $db: $ty = $crate::TestDatabase::new(backend, $crate::pool::PoolConfig::default())
+                .await
+                .expect("Failed to create test database");
+
+            // Run the test
+            $test.await
+        }
+        .await
+    };
+    // Version with custom URL and type annotation
+    ($url:expr, |$db:ident: $ty:ty| $test:expr) => {
+        async {
+            // Create backend
+            #[cfg(feature = "postgres")]
+            let backend = $crate::backends::postgres::PostgresBackend::new($url)
+                .await
+                .expect("Failed to create database backend");
+
+            #[cfg(feature = "postgres")]
+            println!(
+                "postgres feature backend: {:?}",
+                backend.connection_string()
+            );
+
+            #[cfg(feature = "sqlx-postgres")]
+            let backend = $crate::backends::sqlx::SqlxPostgresBackend::new($url)
+                .expect("Failed to create database backend");
+
+            #[cfg(feature = "sqlx-postgres")]
+            println!("sqlx-postgres feature backend: {:?}", backend);
+
+            // Create test database
+            let $db: $ty = $crate::TestDatabase::new(backend, $crate::pool::PoolConfig::default())
+                .await
+                .expect("Failed to create test database");
 
             // Run the test
             $test.await
@@ -75,7 +109,6 @@ macro_rules! with_test_db {
             |db| $test.await
         )
     };
-
 
     // Version with type annotation (uses default URL)
     (|$db:ident: $ty:ty| $test:expr) => {
@@ -96,10 +129,9 @@ macro_rules! with_test_db {
             .expect("Failed to create database backend");
 
             // Create test database
-            let $db =
-                $crate::test_db::TestDatabase::new(backend, $crate::pool::PoolConfig::default())
-                    .await
-                    .expect("Failed to create test database");
+            let $db = $crate::TestDatabase::new(backend, $crate::pool::PoolConfig::default())
+                .await
+                .expect("Failed to create test database");
 
             // Run setup
             $db.setup($setup)
@@ -112,36 +144,39 @@ macro_rules! with_test_db {
     };
 
     // Version with setup and test functions using async move blocks
-    ($url:expr, |mut $db:ident| async move $setup:block, |$test_db:ident| async move $test:block) => {
+    ($url:expr, |$setup_param:ident| async move $setup_block:block, |$test_param:ident| async move $test_block:block) => {
         async {
-            // Create backend
+            // Create backend for the URL
             #[cfg(feature = "postgres")]
+            #[allow(unused_variables)]
             let backend = $crate::backends::postgres::PostgresBackend::new($url)
                 .await
                 .expect("Failed to create database backend");
 
             #[cfg(feature = "sqlx-postgres")]
+            #[allow(unused_variables)]
             let backend = $crate::backends::sqlx::SqlxPostgresBackend::new($url)
                 .expect("Failed to create database backend");
 
             // Create test database
-            let mut $db =
-                $crate::test_db::TestDatabase::new(backend, $crate::pool::PoolConfig::default())
-                    .await
-                    .expect("Failed to create test database");
+            let test_db = $crate::TestDatabase::new(backend, $crate::pool::PoolConfig::default())
+                .await
+                .expect("Failed to create test database");
 
             // Run setup
-            $db.setup(|conn| async move {
-                let mut $db = conn;
-                $setup
-            })
-            .await
-            .expect("Failed to setup test database");
+            test_db
+                .setup(|conn| async move {
+                    let $setup_param = conn;
+                    $setup_block
+                })
+                .await
+                .expect("Failed to setup test database");
 
             // Run the test
-            let $test_db = $db;
-            async move $test.await
+            let $test_param = test_db;
+            $test_block
         }
+        .await
     };
 }
 
@@ -232,8 +267,6 @@ mod tests {
     use crate::TestDatabase;
 
     use super::*;
-    use sqlx::{Executor, Row};
-    use uuid::Uuid;
 
     fn setup_logging() {
         std::env::set_var("RUST_LOG", "sqlx=debug");

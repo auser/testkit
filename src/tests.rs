@@ -1,6 +1,17 @@
 #[cfg(all(test, feature = "mysql"))]
 use crate::{backends::MySqlBackend, env::get_mysql_url};
 
+#[cfg(feature = "postgres")]
+#[cfg(test)]
+use crate::{
+    backend::{Connection, DatabasePool},
+    backends::postgres::PostgresBackend,
+    env::get_postgres_url,
+    migrations::RunSql,
+    pool::PoolConfig,
+    template::DatabaseTemplate,
+};
+
 #[allow(dead_code)]
 const SQL_SCRIPTS: &[&str] = &[
     r#"
@@ -35,7 +46,7 @@ async fn test_postgres_template() {
     // Initialize template with SQL scripts
     template
         .initialize_template(|mut conn| async move {
-            conn.run_sql_scripts(&SqlSource::Embedded(SQL_SCRIPTS))
+            conn.run_sql_scripts(&crate::SqlSource::Embedded(SQL_SCRIPTS))
                 .await?;
             Ok(())
         })
@@ -128,17 +139,17 @@ async fn test_mysql_template() {
 #[tokio::test]
 #[cfg(feature = "postgres")]
 async fn test_parallel_databases() {
-    let backend = PostgresBackend::new(&get_postgres_url().unwrap())
+    let backend = crate::PostgresBackend::new(&crate::prelude::get_postgres_url().unwrap())
         .await
         .unwrap();
-    let template = DatabaseTemplate::new(backend, PoolConfig::default(), 10)
+    let template = crate::DatabaseTemplate::new(backend, crate::PoolConfig::default(), 10)
         .await
         .unwrap();
 
     // Initialize template
     template
         .initialize_template(|mut conn| async move {
-            conn.run_sql_scripts(&SqlSource::Embedded(SQL_SCRIPTS))
+            conn.run_sql_scripts(&crate::SqlSource::Embedded(SQL_SCRIPTS))
                 .await?;
             Ok(())
         })
@@ -180,17 +191,17 @@ async fn test_parallel_databases() {
 #[tokio::test]
 #[cfg(feature = "postgres")]
 async fn test_concurrent_operations() {
-    let backend = PostgresBackend::new(&get_postgres_url().unwrap())
+    let backend = crate::PostgresBackend::new(&crate::prelude::get_postgres_url().unwrap())
         .await
         .unwrap();
-    let template = DatabaseTemplate::new(backend, PoolConfig::default(), 1)
+    let template = crate::DatabaseTemplate::new(backend, crate::PoolConfig::default(), 1)
         .await
         .unwrap();
 
     // Initialize template
     template
         .initialize_template(|mut conn| async move {
-            conn.run_sql_scripts(&SqlSource::Embedded(SQL_SCRIPTS))
+            conn.run_sql_scripts(&crate::SqlSource::Embedded(SQL_SCRIPTS))
                 .await?;
             Ok(())
         })

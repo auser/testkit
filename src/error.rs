@@ -42,6 +42,15 @@ pub enum PoolError {
 
     #[error("SQLx error: {0}")]
     SqlxErrorMut(&'static mut sqlx::Error),
+
+    #[error("Database drop failed: {0}")]
+    DatabaseDropFailed(String),
+
+    #[error("IO error: {0}")]
+    IoError(std::io::Error),
+
+    #[error("URL parse error: {0}")]
+    UrlParseError(url::ParseError),
 }
 
 impl From<sqlx::Error> for PoolError {

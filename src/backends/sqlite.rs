@@ -149,4 +149,8 @@ impl DatabasePool for SqlitePool {
         // Connection is automatically returned to the pool when dropped
         Ok(())
     }
+
+    fn connection_string(&self) -> String {
+        self.connection_string.clone()
+    }
 }

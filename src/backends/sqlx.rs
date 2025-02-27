@@ -54,10 +54,6 @@ impl Connection for SqlxPostgresConnection {
             .await
             .map_err(|e| PoolError::TransactionError(e.to_string()))
     }
-
-    fn connection_string(&self) -> String {
-        self.connection_string.clone()
-    }
 }
 
 impl SqlxPostgresConnection {
@@ -346,6 +342,10 @@ impl DatabaseBackend for SqlxPostgresBackend {
             connection_string: self.url.to_string(),
         })
     }
+
+    fn connection_string(&self, name: &DatabaseName) -> String {
+        self.get_database_url(name)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -381,6 +381,10 @@ impl DatabasePool for SqlxPostgresPool {
     async fn release(&self, _conn: Self::Connection) -> Result<()> {
         // Connection is automatically returned to the pool when dropped
         Ok(())
+    }
+
+    fn connection_string(&self) -> String {
+        self.connection_string.clone()
     }
 }
 
@@ -625,5 +629,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(row0.0, 1);
+
+        // Clean up
     }
 }

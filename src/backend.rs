@@ -22,8 +22,8 @@ pub trait Connection: Send {
     /// Begin a new transaction
     async fn begin(&mut self) -> Result<Self::Transaction<'_>>;
 
-    /// Get the database URL for this connection
-    fn connection_string(&self) -> String;
+    // /// Get the database URL for this connection
+    // fn connection_string(&self) -> String;
 }
 
 /// A trait for database backends that can create and manage databases
@@ -55,6 +55,9 @@ pub trait DatabaseBackend: Send + Sync + Clone {
         name: &DatabaseName,
         template: &DatabaseName,
     ) -> Result<()>;
+
+    /// Get the connection string for the given database
+    fn connection_string(&self, name: &DatabaseName) -> String;
 }
 
 /// A trait for database pools that can be used to acquire and release connections
@@ -68,4 +71,7 @@ pub trait DatabasePool: Send + Sync + Clone {
 
     /// Release a connection back to the pool
     async fn release(&self, conn: Self::Connection) -> Result<()>;
+
+    /// Get the database URL for this pool
+    fn connection_string(&self) -> String;
 }

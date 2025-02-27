@@ -8,6 +8,7 @@ use crate::{
     backend::{DatabaseBackend, DatabasePool},
     error::{PoolError, Result},
     pool::PoolConfig,
+    test_db::sync_drop_database,
 };
 
 /// A unique name for a database
@@ -102,16 +103,19 @@ impl<B: DatabaseBackend + Clone + Send + 'static> Drop for DatabaseTemplate<B> {
         let backend = self.backend.clone();
         let name = self.name.clone();
 
-        tokio::spawn(async move {
-            for replica in replicas {
-                if let Err(e) = backend.drop_database(&replica).await {
-                    tracing::error!("Failed to drop replica database: {}", e);
-                }
+        println!("Dropping template database: {}", name);
+        for replica in replicas {
+            println!("Dropping replica database: {}", replica);
+            let connection_string = backend.connection_string(&name);
+            if let Err(e) = sync_drop_database(&connection_string) {
+                tracing::error!("Failed to drop replica database: {}", e);
             }
-            if let Err(e) = backend.drop_database(&name).await {
-                tracing::error!("Failed to drop template database: {}", e);
-            }
-        });
+        }
+
+        let connection_string = backend.connection_string(&name);
+        if let Err(e) = sync_drop_database(&connection_string) {
+            tracing::error!("Failed to drop template database: {}", e);
+        }
     }
 }
 
@@ -134,6 +138,7 @@ where
 pub struct ImmutableDatabase<'a, B: DatabaseBackend + Clone + Send + 'static> {
     name: DatabaseName,
     pool: B::Pool,
+    #[allow(dead_code)]
     backend: B,
     _permit: tokio::sync::SemaphorePermit<'a>,
 }
@@ -152,13 +157,11 @@ impl<'a, B: DatabaseBackend + Clone + Send + 'static> ImmutableDatabase<'a, B> {
 
 impl<'a, B: DatabaseBackend + Clone + Send + 'static> Drop for ImmutableDatabase<'a, B> {
     fn drop(&mut self) {
-        let backend = self.backend.clone();
         let name = self.name.clone();
+        let connection_string = self.backend.connection_string(&name);
 
-        tokio::task::spawn_blocking(move || async move {
-            if let Err(e) = backend.drop_database(&name).await {
-                tracing::error!("Failed to drop database: {}", e);
-            }
-        });
+        if let Err(e) = sync_drop_database(&connection_string) {
+            tracing::error!("Failed to drop database: {:?}", e);
+        }
     }
 }

@@ -9,6 +9,14 @@ pub use crate::backends::PostgresBackend;
 pub use crate::backends::SqlxPostgresBackend;
 pub use crate::env::*;
 pub use crate::template::{DatabaseName, DatabaseTemplate, ImmutableDatabase};
-pub use crate::test_db::TestDatabase;
 pub use crate::with_test_db;
 pub use crate::SqlSource;
+pub use crate::TestDatabase;
+
+// Re-exports
+#[cfg(any(
+    feature = "sqlx-postgres",
+    feature = "sqlx-sqlite",
+    feature = "sqlx-mysql"
+))]
+pub use sqlx::Executor;
