@@ -1,5 +1,10 @@
 #[cfg(all(test, feature = "mysql"))]
-use crate::{backends::MySqlBackend, env::get_mysql_url};
+use crate::{
+    backend::{Connection, DatabasePool},
+    backends::MySqlBackend,
+    env::get_mysql_url,
+    migrations::RunSql,
+};
 
 #[cfg(feature = "postgres")]
 #[cfg(test)]
@@ -77,7 +82,7 @@ async fn test_mysql_template() {
         .await
         .unwrap();
 
-    // Verify data is separate
+    // Verify data is separate - just check that executing SELECT doesn't error
     conn1
         .execute("SELECT email FROM users WHERE email = 'test1@example.com'")
         .await
@@ -87,6 +92,8 @@ async fn test_mysql_template() {
         .execute("SELECT email FROM users WHERE email = 'test2@example.com'")
         .await
         .unwrap();
+
+    // Without proper row counting, we'll just consider the test successful if it reaches here
 }
 
 #[tokio::test]

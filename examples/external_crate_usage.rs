@@ -1,6 +1,10 @@
-#[cfg(not(feature = "sqlx-postgres"))]
+#[cfg(feature = "postgres")]
 #[allow(unused_imports)]
 use db_testkit::backends::PostgresBackend;
+
+#[cfg(not(feature = "postgres"))]
+#[allow(dead_code)]
+struct PostgresBackend;
 
 #[tokio::test]
 async fn test_external_crate_usage() {
