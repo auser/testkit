@@ -29,9 +29,11 @@ tempfile = "3.9.0"
 default = ["sqlx-postgres"]
 postgres = ["dep:tokio-postgres"]
 mysql = ["dep:mysql_async"]
-sqlx-postgres = ["dep:sqlx"]
-sqlx-mysql = ["sqlx/mysql", "dep:sqlx"]
-sqlx-sqlite = ["sqlx/sqlite", "dep:sqlx"]
+sqlite = []
+sqlx-postgres = ["dep:sqlx", "sqlx-backend"]
+sqlx-mysql = ["sqlx/mysql", "dep:sqlx", "sqlx-backend"]
+sqlx-sqlite = ["sqlx/sqlite", "dep:sqlx", "sqlx-backend"]
+sqlx-backend = []
 
 [dev-dependencies]
 tokio = { version = "1.35.1", features = ["full", "test-util"] }

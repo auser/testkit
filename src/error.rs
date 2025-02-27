@@ -38,9 +38,19 @@ pub enum PoolError {
     //     feature = "sqlx-sqlite"
     // ))]
     #[error("SQLx error: {0}")]
+    #[cfg(any(
+        feature = "sqlx-postgres",
+        feature = "sqlx-mysql",
+        feature = "sqlx-sqlite"
+    ))]
     SqlxError(sqlx::Error),
 
     #[error("SQLx error: {0}")]
+    #[cfg(any(
+        feature = "sqlx-postgres",
+        feature = "sqlx-mysql",
+        feature = "sqlx-sqlite"
+    ))]
     SqlxErrorMut(&'static mut sqlx::Error),
 
     #[error("Database drop failed: {0}")]
@@ -53,6 +63,11 @@ pub enum PoolError {
     UrlParseError(url::ParseError),
 }
 
+#[cfg(any(
+    feature = "sqlx-postgres",
+    feature = "sqlx-mysql",
+    feature = "sqlx-sqlite"
+))]
 impl From<sqlx::Error> for PoolError {
     fn from(error: sqlx::Error) -> Self {
         PoolError::SqlxError(error)
@@ -61,3 +76,13 @@ impl From<sqlx::Error> for PoolError {
 
 /// Result type for database pool operations
 pub type Result<T> = std::result::Result<T, PoolError>;
+
+/// Type helper for defining a standard result with PoolError
+pub fn ok<T>(value: T) -> Result<T> {
+    Ok(value)
+}
+
+/// Type helper for creating a standard error result with PoolError
+pub fn err<T>(message: impl Into<String>) -> Result<T> {
+    Err(PoolError::DatabaseError(message.into()))
+}

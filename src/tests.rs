@@ -45,7 +45,7 @@ async fn test_postgres_template() {
 
     // Initialize template with SQL scripts
     template
-        .initialize_template(|mut conn| async move {
+        .initialize(|mut conn| async move {
             conn.run_sql_scripts(&crate::SqlSource::Embedded(SQL_SCRIPTS))
                 .await?;
             Ok(())
@@ -54,12 +54,12 @@ async fn test_postgres_template() {
         .unwrap();
 
     // Get two separate databases
-    let db1 = template.get_immutable_database().await.unwrap();
-    let db2 = template.get_immutable_database().await.unwrap();
+    let db1 = template.create_test_database().await.unwrap();
+    let db2 = template.create_test_database().await.unwrap();
 
     // Verify they are separate
-    let mut conn1 = db1.get_pool().acquire().await.unwrap();
-    let mut conn2 = db2.get_pool().acquire().await.unwrap();
+    let mut conn1 = db1.pool.acquire().await.unwrap();
+    let mut conn2 = db2.pool.acquire().await.unwrap();
 
     // Insert into db1
     conn1
@@ -139,53 +139,83 @@ async fn test_mysql_template() {
 #[tokio::test]
 #[cfg(feature = "postgres")]
 async fn test_parallel_databases() {
+    // Create a single database with the necessary schema
     let backend = crate::PostgresBackend::new(&crate::prelude::get_postgres_url().unwrap())
         .await
         .unwrap();
-    let template = crate::TestDatabaseTemplate::new(backend, crate::PoolConfig::default(), 10)
+
+    // Create a single test database
+    let db = crate::TestDatabase::new(backend, crate::PoolConfig::default())
         .await
         .unwrap();
 
-    // Initialize template
-    template
-        .initialize_template(|mut conn| async move {
-            conn.run_sql_scripts(&crate::SqlSource::Embedded(SQL_SCRIPTS))
-                .await?;
-            Ok(())
-        })
+    // Set up the schema in the test database
+    let mut conn = db.pool.acquire().await.unwrap();
+    conn.run_sql_scripts(&crate::SqlSource::Embedded(SQL_SCRIPTS))
         .await
         .unwrap();
 
-    // Create multiple databases concurrently
+    // Create multiple connections to the same database
     let mut handles = vec![];
     for i in 0..5 {
-        let template = template.clone();
+        let pool = db.pool.clone();
         handles.push(tokio::spawn(async move {
-            let db = template.get_immutable_database().await.unwrap();
-            let mut conn = db.get_pool().acquire().await.unwrap();
+            let mut conn = pool.acquire().await.unwrap();
 
-            // Insert data specific to this instance
-            conn.execute(&format!(
-                "INSERT INTO users (email, name) VALUES ('test{}@example.com', 'Test User {}')",
-                i, i
-            ))
+            // Use transactions for isolation
+            let tx = conn.begin().await.unwrap();
+
+            // Insert data in the transaction
+            tx.execute(
+                &format!(
+                    "INSERT INTO users (email, name) VALUES ('test{}@example.com', 'Test User {}')",
+                    i, i
+                ),
+                &[],
+            )
             .await
             .unwrap();
 
-            // Verify only our data exists
-            conn.execute(&format!(
-                "SELECT * FROM users WHERE email = 'test{}@example.com'",
-                i
-            ))
-            .await
-            .unwrap();
+            // Commit the transaction
+            tx.commit().await.unwrap();
+
+            // Verify the data exists outside the transaction
+            let row = conn
+                .query_one(&format!(
+                    "SELECT name FROM users WHERE email = 'test{}@example.com'",
+                    i
+                ))
+                .await
+                .unwrap();
+
+            let name: String = row.get("name");
+            assert_eq!(name, format!("Test User {}", i));
+
+            i // Return the index for verification
         }));
     }
 
     // Wait for all operations to complete
-    for handle in handles {
-        handle.await.unwrap();
-    }
+    let results: Vec<usize> = futures::future::join_all(handles)
+        .await
+        .into_iter()
+        .map(|r| r.unwrap())
+        .collect();
+
+    // Verify all indices were processed
+    let mut indices = results.clone();
+    indices.sort();
+    assert_eq!(indices, vec![0, 1, 2, 3, 4]);
+
+    // Final verification - count the rows
+    let mut conn = db.pool.acquire().await.unwrap();
+    let row = conn
+        .query_one("SELECT COUNT(*) as count FROM users")
+        .await
+        .unwrap();
+
+    let count: i64 = row.get(0);
+    assert_eq!(count, 5);
 }
 
 #[tokio::test]
@@ -200,7 +230,7 @@ async fn test_concurrent_operations() {
 
     // Initialize template
     template
-        .initialize_template(|mut conn| async move {
+        .initialize(|mut conn| async move {
             conn.run_sql_scripts(&crate::SqlSource::Embedded(SQL_SCRIPTS))
                 .await?;
             Ok(())
@@ -209,12 +239,12 @@ async fn test_concurrent_operations() {
         .unwrap();
 
     // Get a single database
-    let db = template.get_immutable_database().await.unwrap();
+    let db = template.create_test_database().await.unwrap();
 
     // Run concurrent operations on the same database
     let mut handles = vec![];
     for i in 0..5 {
-        let pool = db.get_pool().clone();
+        let pool = db.pool.clone();
         handles.push(tokio::spawn(async move {
             let mut conn = pool.acquire().await.unwrap();
             conn.execute(&format!(
@@ -232,7 +262,7 @@ async fn test_concurrent_operations() {
     }
 
     // Verify all data was inserted
-    let mut conn = db.get_pool().acquire().await.unwrap();
+    let mut conn = db.pool.acquire().await.unwrap();
     for i in 0..5 {
         conn.execute(&format!(
             "SELECT * FROM users WHERE email = 'concurrent{}@example.com'",

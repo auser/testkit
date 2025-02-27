@@ -101,7 +101,7 @@ mod tests {
 
         // Initialize template with SQL scripts
         template
-            .initialize_template(|mut conn| async move {
+            .initialize(|mut conn| async move {
                 conn.run_sql_scripts(&SqlSource::File(setup_path)).await?;
                 Ok(())
             })
@@ -109,8 +109,8 @@ mod tests {
             .unwrap();
 
         // Get a database and verify table was created
-        let db = template.get_immutable_database().await.unwrap();
-        let mut conn = db.get_pool().acquire().await.unwrap();
+        let db = template.create_test_database().await.unwrap();
+        let mut conn = db.pool.acquire().await.unwrap();
 
         // Verify table exists and has expected columns
         conn.execute(

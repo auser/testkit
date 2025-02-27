@@ -35,6 +35,7 @@ pub enum TestDatabaseMode<B: DatabaseBackend + Clone + Send + 'static> {
 }
 
 /// A template database that can be used to create immutable copies
+#[derive(Clone)]
 pub struct TestDatabaseTemplate<B: DatabaseBackend + Clone + Send + 'static> {
     backend: B,
     config: PoolConfig,
@@ -56,6 +57,11 @@ impl<B: DatabaseBackend + Clone + Send + 'static> TestDatabaseTemplate<B> {
             replicas: Arc::new(Mutex::new(Vec::new())),
             semaphore: Arc::new(Semaphore::new(max_replicas)),
         })
+    }
+
+    /// Returns the name of this template database
+    pub fn name(&self) -> &DatabaseName {
+        &self.name
     }
 
     /// Initialize the template database with a setup function
@@ -244,6 +250,12 @@ pub fn sync_drop_database(database_uri: &str) -> Result<()> {
     #[cfg(any(feature = "postgres", feature = "sqlx-postgres"))]
     drop_postgres_database(&parsed, database_name)?;
 
+    #[cfg(feature = "sqlite")]
+    drop_sqlite_database(&parsed, database_name)?;
+
+    #[cfg(feature = "mysql")]
+    drop_mysql_database(&parsed, database_name)?;
+
     Ok(())
 }
 
@@ -253,7 +265,7 @@ fn drop_postgres_database(parsed: &Url, database_name: &str) -> Result<()> {
     let database_host = format!(
         "{}://{}:{}@{}:{}",
         parsed.scheme(),
-        "postgres", // Always use the postgres superuser for dropping
+        test_user,
         parsed.password().unwrap_or(""),
         parsed.host_str().unwrap_or(""),
         parsed.port().unwrap_or(5432)
@@ -319,6 +331,95 @@ fn drop_role_command(database_host: &str, role_name: &str) -> Result<()> {
         }
 
         return Err(PoolError::DatabaseDropFailed(error));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "sqlite")]
+#[allow(unused)]
+fn drop_sqlite_database(parsed: &Url, database_name: &str) -> Result<()> {
+    // For SQLite, the database is a file on disk
+    // The path should be in the format sqlite:///path/to/db.sqlite or file:///path/to/db.sqlite
+
+    let path = if parsed.scheme() == "sqlite" {
+        // Remove the leading '/' from the path for sqlite:// URLs
+        let path_str = parsed.path().trim_start_matches('/');
+        std::path::PathBuf::from(path_str)
+    } else {
+        // For file:// URLs, use the path directly
+        std::path::PathBuf::from(parsed.path())
+    };
+
+    // Check if the file exists before attempting to delete it
+    if path.exists() {
+        tracing::debug!("Removing SQLite database file: {:?}", path);
+        std::fs::remove_file(&path).map_err(|e| {
+            PoolError::DatabaseDropFailed(format!("Failed to remove SQLite database file: {}", e))
+        })?;
+    } else {
+        tracing::debug!("SQLite database file does not exist: {:?}", path);
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "mysql")]
+fn drop_mysql_database(parsed: &Url, database_name: &str) -> Result<()> {
+    // Ensure we're using a user with privileges to drop databases
+    let mysql_user = parsed.username();
+    let mysql_password = parsed.password().unwrap_or("");
+
+    let database_host = format!(
+        "{}://{}:{}@{}:{}",
+        parsed.scheme(),
+        mysql_user,
+        mysql_password,
+        parsed.host_str().unwrap_or("localhost"),
+        parsed.port().unwrap_or(3306)
+    );
+
+    // First, terminate all connections to the database
+    terminate_mysql_connections(&database_host, database_name)?;
+
+    // Then drop the database
+    drop_mysql_database_command(&database_host, database_name)?;
+
+    Ok(())
+}
+
+#[cfg(feature = "mysql")]
+fn terminate_mysql_connections(database_host: &str, database_name: &str) -> Result<()> {
+    let output = Command::new("mysql")
+        .arg(format!("--host={}", database_host))
+        .arg("-e")
+        .arg(format!(
+            "SELECT CONCAT('KILL ', id, ';') FROM INFORMATION_SCHEMA.PROCESSLIST WHERE db = '{}' INTO @kill_list; PREPARE kill_stmt FROM @kill_list; EXECUTE kill_stmt; DEALLOCATE PREPARE kill_stmt;",
+            database_name
+        ))
+        .output()
+        .map_err(PoolError::IoError)?;
+
+    if !output.status.success() {
+        return Err(PoolError::DatabaseDropFailed(
+            String::from_utf8_lossy(&output.stderr).to_string(),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "mysql")]
+fn drop_mysql_database_command(database_host: &str, database_name: &str) -> Result<()> {
+    let output = Command::new("mysql")
+        .arg(database_host)
+        .arg("-e")
+        .arg(format!("DROP DATABASE IF EXISTS `{}`", database_name))
+        .output()
+        .map_err(PoolError::IoError)?;
+
+    if !output.status.success() {
+        return Err(PoolError::DatabaseDropFailed(
+            String::from_utf8_lossy(&output.stderr).to_string(),
+        ));
     }
     Ok(())
 }

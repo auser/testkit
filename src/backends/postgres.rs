@@ -18,6 +18,70 @@ pub struct PostgresConnection {
     client: Client,
 }
 
+impl PostgresConnection {
+    /// Execute a query and return the rows
+    pub async fn query(&mut self, sql: &str) -> Result<Vec<tokio_postgres::Row>> {
+        self.client.query(sql, &[]).await.map_err(|e| {
+            PoolError::DatabaseError(format!("Failed to execute query '{}': {}", sql, e))
+        })
+    }
+
+    /// Execute a query and return exactly one row
+    pub async fn query_one(&mut self, sql: &str) -> Result<tokio_postgres::Row> {
+        self.client.query_one(sql, &[]).await.map_err(|e| {
+            PoolError::DatabaseError(format!("Failed to execute query '{}': {}", sql, e))
+        })
+    }
+
+    /// Execute a query and return at most one row (or None)
+    pub async fn query_opt(&mut self, sql: &str) -> Result<Option<tokio_postgres::Row>> {
+        self.client.query_opt(sql, &[]).await.map_err(|e| {
+            PoolError::DatabaseError(format!("Failed to execute query '{}': {}", sql, e))
+        })
+    }
+}
+
+#[async_trait]
+impl Connection for PostgresConnection {
+    type Transaction<'conn> = tokio_postgres::Transaction<'conn> where Self: 'conn;
+
+    async fn is_valid(&self) -> bool {
+        self.client.simple_query("SELECT 1").await.is_ok()
+    }
+
+    async fn reset(&mut self) -> Result<()> {
+        self.client
+            .simple_query("DISCARD ALL")
+            .await
+            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn execute(&mut self, sql: &str) -> Result<()> {
+        // Split the SQL into individual statements
+        let statements: Vec<&str> = sql
+            .split(';')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        // Execute each statement separately
+        for stmt in statements {
+            self.client.execute(stmt, &[]).await.map_err(|e| {
+                PoolError::DatabaseError(format!("Failed to execute '{}': {}", stmt, e))
+            })?;
+        }
+        Ok(())
+    }
+
+    async fn begin(&mut self) -> Result<Self::Transaction<'_>> {
+        self.client
+            .transaction()
+            .await
+            .map_err(|e| PoolError::TransactionError(e.to_string()))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PostgresPool {
     connection_string: String,
@@ -61,47 +125,6 @@ impl PostgresBackend {
 
     pub fn connection_string(&self) -> String {
         self.url.clone()
-    }
-}
-
-#[async_trait]
-impl Connection for PostgresConnection {
-    type Transaction<'conn> = tokio_postgres::Transaction<'conn> where Self: 'conn;
-
-    async fn is_valid(&self) -> bool {
-        self.client.simple_query("SELECT 1").await.is_ok()
-    }
-
-    async fn reset(&mut self) -> Result<()> {
-        self.client
-            .simple_query("DISCARD ALL")
-            .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
-        Ok(())
-    }
-
-    async fn execute(&mut self, sql: &str) -> Result<()> {
-        // Split the SQL into individual statements
-        let statements: Vec<&str> = sql
-            .split(';')
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .collect();
-
-        // Execute each statement separately
-        for stmt in statements {
-            self.client.execute(stmt, &[]).await.map_err(|e| {
-                PoolError::DatabaseError(format!("Failed to execute '{}': {}", stmt, e))
-            })?;
-        }
-        Ok(())
-    }
-
-    async fn begin(&mut self) -> Result<Self::Transaction<'_>> {
-        self.client
-            .transaction()
-            .await
-            .map_err(|e| PoolError::TransactionError(e.to_string()))
     }
 }
 
@@ -287,20 +310,17 @@ impl DatabasePool for PostgresPool {
 mod tests {
     use super::*;
     use crate::prelude::*;
-    use sqlx::Executor;
-    use sqlx::Row;
 
     #[tokio::test]
     async fn test_postgres_backend() {
-        with_test_db!(
+        let _ = with_test_db!(
             "postgres://postgres:postgres@postgres:5432/postgres",
-            |_conn| async move {
-                // No setup needed
-                Ok(())
-            },
-            |db| async move {
+            |db: TestDatabaseTemplate<PostgresBackend>| async move {
+                // Get a database from the template
+                let db = db.create_test_database().await.unwrap();
+
                 // Get a connection
-                let mut conn = db.connection().await.unwrap();
+                let mut conn = db.pool.acquire().await.unwrap();
 
                 // Test basic query execution
                 conn.execute("CREATE TABLE test (id SERIAL PRIMARY KEY, name TEXT)")
@@ -311,8 +331,8 @@ mod tests {
                     .unwrap();
 
                 // Test transaction
-                let mut tx = conn.begin().await.unwrap();
-                tx.execute("INSERT INTO test (name) VALUES ('test2')")
+                let tx = conn.begin().await.unwrap();
+                tx.execute("INSERT INTO test (name) VALUES ('test2')", &[])
                     .await
                     .unwrap();
                 tx.commit().await.unwrap();
@@ -338,15 +358,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_postgres_database_operations() {
-        with_test_db!(
+        let _ = with_test_db!(
             "postgres://postgres:postgres@postgres:5432/postgres",
             |_conn| async move {
                 // Setup code goes here
-                Ok(())
+                Ok(()) as Result<()>
             },
-            |db| async move {
+            |db: TestDatabaseTemplate<PostgresBackend>| async move {
+                // Get a database from the template
+                let db = db.create_test_database().await.unwrap();
+
                 // Test multiple statement execution
-                let conn = db.connection().await.unwrap();
+                let mut conn = db.pool.acquire().await.unwrap();
                 conn.execute(
                     "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT); \
                      INSERT INTO users (name) VALUES ('user1'); \
@@ -357,13 +380,14 @@ mod tests {
 
                 // You can verify the inserted data if needed
                 conn.execute("SELECT * FROM users").await.unwrap();
+                Ok(()) as Result<()>
             }
         );
     }
 
     #[tokio::test]
     async fn test_postgres_database_operations_setup() {
-        with_test_db!(
+        let _ = with_test_db!(
             "postgres://postgres:postgres@postgres:5432/postgres",
             |conn| async move {
                 conn.execute("CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT)")
@@ -372,17 +396,24 @@ mod tests {
                 conn.execute("INSERT INTO users (id, name) VALUES (1, 'user1')")
                     .await
                     .unwrap();
-                Ok(())
+                Ok(()) as Result<()>
             },
-            |db| async move {
+            |db: TestDatabaseTemplate<PostgresBackend>| async move {
+                // Get a database from the template
+                let db = db.create_test_database().await.unwrap();
+
                 // You can verify the inserted data if needed
-                let conn = db.connection().await.unwrap();
-                let result = conn
-                    .fetch_one("SELECT * FROM users WHERE id = 1")
+                let mut conn = db.pool.acquire().await.unwrap();
+                let row = conn
+                    .query_one("SELECT * FROM users WHERE id = 1")
                     .await
                     .unwrap();
-                let val = result.get::<String, _>(1);
-                assert_eq!(val, "user1");
+
+                // Get data from the row using get method
+                let name: String = row.get("name");
+                assert_eq!(name, "user1");
+
+                Ok(()) as Result<()>
             }
         );
     }
