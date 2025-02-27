@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use async_trait::async_trait;
-use sqlx::{sqlite::SqlitePool, Pool, Sqlite};
+use sqlx::{Pool, Sqlite, Transaction};
 
 use crate::{
     backend::{Connection, DatabaseBackend, DatabasePool},
@@ -12,7 +12,6 @@ use crate::{
 
 pub struct SqliteConnection {
     pub pool: Pool<Sqlite>,
-    connection_string: String,
 }
 
 #[async_trait]
@@ -42,10 +41,6 @@ impl Connection for SqliteConnection {
             .await
             .map_err(|e| PoolError::TransactionError(e.to_string()))
     }
-
-    fn connection_string(&self) -> String {
-        self.connection_string.clone()
-    }
 }
 
 #[derive(Clone)]
@@ -68,10 +63,32 @@ impl SqliteBackend {
 #[async_trait]
 impl DatabaseBackend for SqliteBackend {
     type Connection = SqliteConnection;
-    type Pool = SqlitePool;
+    type Pool = SqliteDbPool;
+
+    async fn connect(&self) -> Result<Self::Pool> {
+        // For SQLite, we connect to a temporary in-memory database as the default
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(5u32)
+            .connect("sqlite::memory:")
+            .await
+            .map_err(|e| PoolError::PoolCreationFailed(e.to_string()))?;
+
+        Ok(SqliteDbPool {
+            pool,
+            url: "sqlite::memory:".to_string(),
+        })
+    }
 
     async fn create_database(&self, name: &DatabaseName) -> Result<()> {
         let db_path = self.get_db_path(name);
+
+        // Ensure parent directory exists
+        if let Some(parent) = db_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                PoolError::DatabaseError(format!("Failed to create directory: {}", e))
+            })?;
+        }
+
         if db_path.exists() {
             std::fs::remove_file(&db_path).map_err(|e| {
                 PoolError::DatabaseError(format!("Failed to remove database: {}", e))
@@ -107,41 +124,49 @@ impl DatabaseBackend for SqliteBackend {
         Ok(())
     }
 
-    async fn create_pool(&self, name: &DatabaseName, _config: &PoolConfig) -> Result<Self::Pool> {
+    async fn create_pool(&self, name: &DatabaseName, config: &PoolConfig) -> Result<Self::Pool> {
         let db_path = self.get_db_path(name);
-        let pool = SqlitePool::connect(&format!("sqlite:{}", db_path.display()))
+        let url = format!("sqlite:{}", db_path.display());
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(config.max_size as u32)
+            .connect(&url)
             .await
             .map_err(|e| PoolError::PoolCreationFailed(e.to_string()))?;
-        Ok(pool)
+
+        Ok(SqliteDbPool { pool, url })
+    }
+
+    async fn terminate_connections(&self, _name: &DatabaseName) -> Result<()> {
+        // SQLite doesn't need to terminate connections explicitly
+        // as they are typically file-based and local
+        Ok(())
+    }
+
+    fn connection_string(&self, name: &DatabaseName) -> String {
+        format!("sqlite:{}", self.get_db_path(name).display())
     }
 }
 
 #[derive(Clone)]
-pub struct SqlitePool {
+pub struct SqliteDbPool {
     pool: Pool<Sqlite>,
-    connection_string: String,
+    url: String,
 }
 
-impl SqlitePool {
-    pub async fn new(url: &str) -> Result<Self> {
-        let pool = SqlitePool::connect(url)
-            .await
-            .map_err(|e| PoolError::PoolCreationFailed(e.to_string()))?;
-        Ok(Self {
-            pool,
-            connection_string: url.to_string(),
-        })
+impl SqliteDbPool {
+    /// Get the underlying SQLx pool for direct SQLx operations
+    pub fn sqlx_pool(&self) -> &Pool<Sqlite> {
+        &self.pool
     }
 }
 
 #[async_trait]
-impl DatabasePool for SqlitePool {
+impl DatabasePool for SqliteDbPool {
     type Connection = SqliteConnection;
 
     async fn acquire(&self) -> Result<Self::Connection> {
         Ok(SqliteConnection {
             pool: self.pool.clone(),
-            connection_string: self.connection_string.clone(),
         })
     }
 
@@ -151,6 +176,6 @@ impl DatabasePool for SqlitePool {
     }
 
     fn connection_string(&self) -> String {
-        self.connection_string.clone()
+        self.url.clone()
     }
 }

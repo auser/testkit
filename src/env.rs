@@ -1,6 +1,6 @@
 use std::sync::OnceLock;
 
-use crate::error::{PoolError, Result};
+use crate::error::Result;
 
 /// A static cell that ensures environment variables are loaded only once
 static ENV_LOADED: OnceLock<()> = OnceLock::new();
@@ -75,13 +75,12 @@ pub fn get_sqlx_postgres_url() -> Result<String> {
 ///
 /// Returns a `Result` containing the database URL string, or an error if the
 /// environment variable is not found or is invalid.
-#[cfg(feature = "sqlx-sqlite")]
-pub fn get_sqlx_sqlite_url() -> Result<String> {
+#[cfg(any(feature = "sqlite", feature = "sqlx-sqlite"))]
+pub fn get_sqlite_url() -> Result<String> {
     load_env();
-    std::env::var("DATABASE_URL").map_err(|e| {
-        PoolError::ConfigError(format!(
-            "Failed to get DATABASE_URL from environment: {}",
-            e
-        ))
-    })
+    // Use a default if DATABASE_URL is not set
+    Ok(std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+        // Default to a temporary directory for SQLite
+        String::from("/tmp/sqlite-testkit")
+    }))
 }

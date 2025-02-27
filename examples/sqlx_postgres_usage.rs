@@ -20,7 +20,7 @@ async fn main() -> std::result::Result<(), db_testkit::PoolError> {
 
             // Create a table
             sqlx::query("CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT, email TEXT)")
-                .execute(&test_db.pool)
+                .execute(test_db.pool.sqlx_pool())
                 .await
                 .unwrap();
 
@@ -28,7 +28,7 @@ async fn main() -> std::result::Result<(), db_testkit::PoolError> {
 
             // Insert data
             sqlx::query("INSERT INTO users (name, email) VALUES ('John Doe', 'john@example.com')")
-                .execute(&test_db.pool)
+                .execute(test_db.pool.sqlx_pool())
                 .await
                 .unwrap();
 
@@ -36,7 +36,7 @@ async fn main() -> std::result::Result<(), db_testkit::PoolError> {
 
             // Query data
             let row = sqlx::query("SELECT name, email FROM users WHERE name = 'John Doe'")
-                .fetch_one(&test_db.pool)
+                .fetch_one(test_db.pool.sqlx_pool())
                 .await
                 .unwrap();
 

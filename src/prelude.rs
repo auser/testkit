@@ -7,6 +7,8 @@ pub use crate::test_db::{DatabaseName, TestDatabase, TestDatabaseTemplate};
 pub use crate::wrapper::{ResourcePool, Reusable};
 
 // Feature-specific backend exports
+#[cfg(feature = "sqlx-sqlite")]
+pub use crate::backends::sqlite::SqliteBackend;
 #[cfg(feature = "mysql")]
 pub use crate::backends::MySqlBackend;
 #[cfg(feature = "postgres")]
@@ -15,6 +17,11 @@ pub use crate::backends::PostgresBackend;
 pub use crate::backends::SqlxPostgresBackend;
 
 // Macros
+#[cfg(any(
+    feature = "postgres",
+    feature = "sqlx-postgres",
+    feature = "sqlx-sqlite"
+))]
 pub use crate::with_test_db;
 
 // Environment utilities

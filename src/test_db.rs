@@ -1,4 +1,4 @@
-use std::{fmt::Display, process::Command, sync::Arc};
+use std::{fmt::Display, sync::Arc};
 
 use crate::{
     backend::{Connection, DatabaseBackend, DatabasePool},
@@ -259,6 +259,8 @@ pub fn sync_drop_database(database_uri: &str) -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "postgres")]
+#[allow(dead_code)]
 fn drop_postgres_database(parsed: &Url, database_name: &str) -> Result<()> {
     let test_user = parsed.username();
 
@@ -278,6 +280,8 @@ fn drop_postgres_database(parsed: &Url, database_name: &str) -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "postgres")]
+#[allow(dead_code)]
 fn terminate_connections(database_host: &str, database_name: &str) -> Result<()> {
     let output = Command::new("psql")
         .arg(database_host)
@@ -293,6 +297,8 @@ fn terminate_connections(database_host: &str, database_name: &str) -> Result<()>
     Ok(())
 }
 
+#[cfg(feature = "postgres")]
+#[allow(dead_code)]
 fn drop_database_command(database_host: &str, database_name: &str) -> Result<()> {
     let output = Command::new("psql")
         .arg(database_host)
@@ -309,6 +315,8 @@ fn drop_database_command(database_host: &str, database_name: &str) -> Result<()>
     Ok(())
 }
 
+#[cfg(feature = "postgres")]
+#[allow(dead_code)]
 fn drop_role_command(database_host: &str, role_name: &str) -> Result<()> {
     // Skip dropping the role if it's postgres (superuser) or postgres_user
     if role_name == "postgres" || role_name == "postgres_user" {

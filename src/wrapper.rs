@@ -45,7 +45,7 @@ impl<T> ResourcePool<T> {
     }
 
     /// Return a resource to the pool for future reuse
-    fn release(&self, t: T) {
+    pub fn release(&self, t: T) {
         self.resources.lock().push(t);
     }
 
