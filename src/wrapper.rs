@@ -1,68 +1,93 @@
+// Generic resource pooling system for database testkit
 use std::{
     future::Future,
     ops::{Deref, DerefMut},
     pin::Pin,
+    sync::Arc,
 };
 
 use parking_lot::Mutex;
 
+// Type aliases for clarity
 type Stack<T> = Vec<T>;
 type Init<T> =
     Box<dyn Fn() -> Pin<Box<dyn Future<Output = T> + Send + 'static>> + Send + Sync + 'static>;
 type Reset<T> =
     Box<dyn Fn(T) -> Pin<Box<dyn Future<Output = T> + Send + 'static>> + Send + Sync + 'static>;
 
-#[allow(dead_code)]
-pub(crate) struct ObjectPool<T> {
-    objects: Mutex<Stack<T>>,
-    init: Init<T>,
-    reset: Reset<T>,
+/// Generic object pool for any reusable resource
+pub struct ResourcePool<T> {
+    resources: Arc<Mutex<Stack<T>>>,
+    init: Arc<Init<T>>,
+    reset: Arc<Reset<T>>,
 }
 
-#[allow(dead_code)]
-impl<T> ObjectPool<T> {
-    pub(crate) fn new(init: Init<T>, reset: Reset<T>) -> Self {
+impl<T> ResourcePool<T> {
+    /// Create a new resource pool with initialization and reset functions
+    pub fn new(init: Init<T>, reset: Reset<T>) -> Self {
         Self {
-            objects: Mutex::new(Stack::new()),
-            init,
-            reset,
+            resources: Arc::new(Mutex::new(Stack::new())),
+            init: Arc::new(init),
+            reset: Arc::new(reset),
         }
     }
 
-    pub(crate) async fn pull(&self) -> Reusable<T> {
-        let object = self.objects.lock().pop();
-        let object = if let Some(object) = object {
-            (self.reset)(object).await
+    /// Get a resource from the pool, either by reusing an existing one
+    /// or creating a new one if none are available
+    pub async fn acquire(&self) -> Reusable<T> {
+        let resource = self.resources.lock().pop();
+        let resource = if let Some(resource) = resource {
+            (self.reset)(resource).await
         } else {
             (self.init)().await
         };
-        Reusable::new(self, object)
+        Reusable::new(self, resource)
     }
 
-    fn attach(&self, t: T) {
-        self.objects.lock().push(t);
+    /// Return a resource to the pool for future reuse
+    fn release(&self, t: T) {
+        self.resources.lock().push(t);
+    }
+
+    /// Create a shared pool that uses the same resource stack
+    pub fn shared(&self) -> Arc<Self> {
+        Arc::new(Self {
+            resources: self.resources.clone(),
+            init: self.init.clone(),
+            reset: self.reset.clone(),
+        })
     }
 }
 
-/// Reusable object wrapper
-pub struct Reusable<'a, T> {
-    pool: &'a ObjectPool<T>,
+/// Wrapper for a reusable resource that returns it to the pool when dropped
+pub struct Reusable<T> {
+    pool: Arc<ResourcePool<T>>,
     data: Option<T>,
 }
 
-#[allow(dead_code)]
-impl<'a, T> Reusable<'a, T> {
-    fn new(pool: &'a ObjectPool<T>, t: T) -> Self {
+impl<T> Reusable<T> {
+    fn new(pool: &ResourcePool<T>, t: T) -> Self {
         Self {
-            pool,
+            pool: Arc::new(ResourcePool {
+                resources: pool.resources.clone(),
+                init: pool.init.clone(),
+                reset: pool.reset.clone(),
+            }),
             data: Some(t),
+        }
+    }
+
+    /// Explicitly release the resource back to the pool
+    pub fn release(mut self) {
+        if let Some(data) = self.data.take() {
+            self.pool.release(data);
         }
     }
 }
 
 const DATA_MUST_CONTAIN_SOME: &str = "data must always contain a [Some] value";
 
-impl<'a, T> Deref for Reusable<'a, T> {
+impl<T> Deref for Reusable<T> {
     type Target = T;
 
     #[inline]
@@ -71,17 +96,18 @@ impl<'a, T> Deref for Reusable<'a, T> {
     }
 }
 
-impl<'a, T> DerefMut for Reusable<'a, T> {
+impl<T> DerefMut for Reusable<T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.data.as_mut().expect(DATA_MUST_CONTAIN_SOME)
     }
 }
 
-impl<'a, T> Drop for Reusable<'a, T> {
+impl<T> Drop for Reusable<T> {
     #[inline]
     fn drop(&mut self) {
-        self.pool
-            .attach(self.data.take().expect(DATA_MUST_CONTAIN_SOME));
+        if let Some(data) = self.data.take() {
+            self.pool.release(data);
+        }
     }
 }

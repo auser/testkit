@@ -1,8 +1,9 @@
 #[allow(unused)]
 use crate::{
     backend::{Connection, DatabaseBackend, DatabasePool},
+    error::Result,
     pool::PoolConfig,
-    template::DatabaseTemplate,
+    test_db::TestDatabaseTemplate,
 };
 
 #[cfg(feature = "mysql")]
@@ -49,18 +50,19 @@ macro_rules! with_test_db {
             let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
                 "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable".to_string()
             });
-            // Create backend
+
+            // Create backend - fixed to properly scope the backend variable
             #[cfg(feature = "postgres")]
             let backend = $crate::backends::postgres::PostgresBackend::new(&url)
                 .await
                 .expect("Failed to create database backend");
 
             #[cfg(feature = "sqlx-postgres")]
-            let backend = $crate::backends::sqlx::SqlxPostgresBackend::new($url)
+            let backend = $crate::backends::sqlx::SqlxPostgresBackend::new(&url)
                 .expect("Failed to create database backend");
 
-            // Create test database
-            let $db: $ty = $crate::TestDatabase::new(backend, $crate::pool::PoolConfig::default())
+            // Create test database using the simplified API
+            let $db: $ty = $crate::create_template_db(backend, 5)
                 .await
                 .expect("Failed to create test database");
 
@@ -69,30 +71,22 @@ macro_rules! with_test_db {
         }
         .await
     };
+
     // Version with custom URL and type annotation
     ($url:expr, |$db:ident: $ty:ty| $test:expr) => {
         async {
-            // Create backend
+            // Create backend - fixed to properly scope the backend variable
             #[cfg(feature = "postgres")]
             let backend = $crate::backends::postgres::PostgresBackend::new($url)
                 .await
                 .expect("Failed to create database backend");
 
-            #[cfg(feature = "postgres")]
-            println!(
-                "postgres feature backend: {:?}",
-                backend.connection_string()
-            );
-
             #[cfg(feature = "sqlx-postgres")]
             let backend = $crate::backends::sqlx::SqlxPostgresBackend::new($url)
                 .expect("Failed to create database backend");
 
-            #[cfg(feature = "sqlx-postgres")]
-            println!("sqlx-postgres feature backend: {:?}", backend);
-
-            // Create test database
-            let $db: $ty = $crate::TestDatabase::new(backend, $crate::pool::PoolConfig::default())
+            // Create test database using the simplified API
+            let $db: $ty = $crate::create_template_db(backend, 5)
                 .await
                 .expect("Failed to create test database");
 
@@ -129,9 +123,10 @@ macro_rules! with_test_db {
             .expect("Failed to create database backend");
 
             // Create test database
-            let $db = $crate::TestDatabase::new(backend, $crate::pool::PoolConfig::default())
-                .await
-                .expect("Failed to create test database");
+            let $db =
+                $crate::TestDatabaseTemplate::new(backend, $crate::pool::PoolConfig::default())
+                    .await
+                    .expect("Failed to create test database");
 
             // Run setup
             $db.setup($setup)
@@ -159,9 +154,10 @@ macro_rules! with_test_db {
                 .expect("Failed to create database backend");
 
             // Create test database
-            let test_db = $crate::TestDatabase::new(backend, $crate::pool::PoolConfig::default())
-                .await
-                .expect("Failed to create test database");
+            let test_db =
+                $crate::TestDatabaseTemplate::new(backend, $crate::pool::PoolConfig::default())
+                    .await
+                    .expect("Failed to create test database");
 
             // Run setup
             test_db
@@ -192,12 +188,12 @@ macro_rules! with_test_db {
 macro_rules! with_mysql_test_db {
     ($f:expr) => {{
         let backend = MySqlBackend::new(&get_mysql_url().unwrap()).await.unwrap();
-        let template = DatabaseTemplate::new(backend, PoolConfig::default(), 1)
+        let template = TestDatabaseTemplate::new(backend, PoolConfig::default(), 1)
             .await
             .unwrap();
 
         let db = template.get_immutable_database().await.unwrap();
-        let test_db = TestDatabase::new(
+        let test_db = TestDatabaseTemplate::new(
             db.get_pool().clone(),
             format!("test_user_{}", uuid::Uuid::new_v4()),
         );
@@ -220,12 +216,12 @@ macro_rules! with_sqlx_test_db {
         let backend = SqlxPostgresBackend::new(&get_sqlx_postgres_url().unwrap())
             .await
             .unwrap();
-        let template = DatabaseTemplate::new(backend, PoolConfig::default(), 1)
+        let template = TestDatabaseTemplate::new(backend, PoolConfig::default(), 1)
             .await
             .unwrap();
 
         let db = template.get_immutable_database().await.unwrap();
-        let test_db = TestDatabase::new(
+        let test_db = TestDatabaseTemplate::new(
             db.get_pool().clone(),
             format!("test_user_{}", uuid::Uuid::new_v4()),
         );
@@ -248,12 +244,12 @@ macro_rules! with_sqlite_test_db {
         let backend = SqliteBackend::new(&get_sqlite_url().unwrap())
             .await
             .unwrap();
-        let template = DatabaseTemplate::new(backend, PoolConfig::default(), 1)
+        let template = TestDatabaseTemplate::new(backend, PoolConfig::default(), 1)
             .await
             .unwrap();
 
         let db = template.get_immutable_database().await.unwrap();
-        let test_db = TestDatabase::new(
+        let test_db = TestDatabaseTemplate::new(
             db.get_pool().clone(),
             format!("test_user_{}", uuid::Uuid::new_v4()),
         );
@@ -264,7 +260,7 @@ macro_rules! with_sqlite_test_db {
 
 #[cfg(test)]
 mod tests {
-    use crate::TestDatabase;
+    use crate::TestDatabaseTemplate;
 
     use super::*;
 
@@ -295,45 +291,25 @@ mod tests {
     async fn test_basic_database_operations() {
         with_test_db!(
             "postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable",
-            |db: TestDatabase<SqlxPostgresBackend>| async move {
+            |db: TestDatabaseTemplate<SqlxPostgresBackend>| async move {
+                // Get a TestDatabase from the template
+                let db = db
+                    .create_test_database()
+                    .await
+                    .expect("Failed to create test database");
+
                 // Setup: Create a test table
                 db.setup(|mut conn| async move {
                     let res = sqlx::query!(
                         "CREATE TABLE some_test_items (id UUID PRIMARY KEY, name TEXT NOT NULL)",
                     )
                     .execute(&mut conn)
-                    .await
-                    .unwrap();
-                    println!("res: {:?}", res);
+                    .await;
+                    assert!(res.is_ok());
                     Ok(())
                 })
                 .await
                 .unwrap();
-                // // Test transaction with commit
-                // let mut conn = db.pool.acquire().await.unwrap();
-                // let mut tx = conn.begin().await.unwrap();
-
-                // let test_id = Uuid::new_v4();
-                // let test_name = "Test Item";
-
-                // tx.execute(
-                //     sqlx::query("INSERT INTO test_items (id, name) VALUES ($1, $2)")
-                //         .bind(test_id)
-                //         .bind(test_name),
-                // )
-                // .await
-                // .unwrap();
-
-                // tx.commit().await.unwrap();
-
-                // // Verify the data was committed
-                // let row = sqlx::query("SELECT name FROM test_items WHERE id = $1")
-                //     .bind(test_id)
-                //     .fetch_one(&db.pool)
-                //     .await
-                //     .unwrap();
-
-                // assert_eq!(row.get::<&str, _>("name"), test_name);
             }
         );
     }
@@ -341,7 +317,7 @@ mod tests {
     // #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     // #[cfg(feature = "sqlx-postgres")]
     // async fn test_transaction_rollback() {
-    //     with_test_db!(|db: TestDatabase<SqlxPostgresBackend>| async move {
+    //     with_test_db!(|db: TestDatabaseTemplate<SqlxPostgresBackend>| async move {
     //         // Setup: Create a test table
     //         db.setup(|mut conn| async move {
     //             sqlx::Executor::execute(
@@ -386,7 +362,7 @@ mod tests {
 
     // #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     // async fn test_multiple_transactions() {
-    //     with_test_db!(|db: TestDatabase<PostgresBackend>| async move {
+    //     with_test_db!(|db: TestDatabaseTemplate<PostgresBackend>| async move {
     //         // Setup: Create a test table
     //         db.setup(|mut conn| async move {
     //             sqlx::Executor::execute(&mut conn, "CREATE TABLE test_items (id UUID PRIMARY KEY, name TEXT NOT NULL, counter INTEGER)")
@@ -439,7 +415,7 @@ mod tests {
 
     // #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     // async fn test_concurrent_connections() {
-    //     with_test_db!(|db: TestDatabase<PostgresBackend>| async move {
+    //     with_test_db!(|db: TestDatabaseTemplate<PostgresBackend>| async move {
     //         // Setup: Create a test table
     //         db.setup(|mut conn| async move {
     //             sqlx::Executor::execute(

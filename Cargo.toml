@@ -26,12 +26,12 @@ dotenvy = "0.15.7"
 tempfile = "3.9.0"
 
 [features]
-default = ["sqlx-postgres", "postgres"]
-postgres = ["dep:tokio-postgres", "dep:sqlx"]
+default = ["sqlx-postgres"]
+postgres = ["dep:tokio-postgres"]
 mysql = ["dep:mysql_async"]
 sqlx-postgres = ["dep:sqlx"]
-sqlx-mysql = ["sqlx/mysql"]
-sqlx-sqlite = ["sqlx/sqlite"]
+sqlx-mysql = ["sqlx/mysql", "dep:sqlx"]
+sqlx-sqlite = ["sqlx/sqlite", "dep:sqlx"]
 
 [dev-dependencies]
 tokio = { version = "1.35.1", features = ["full", "test-util"] }

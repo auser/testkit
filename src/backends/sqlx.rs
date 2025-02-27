@@ -6,7 +6,7 @@ use crate::{
     backend::{Connection, DatabaseBackend, DatabasePool},
     error::{PoolError, Result},
     pool::PoolConfig,
-    template::DatabaseName,
+    DatabaseName,
 };
 
 #[derive(Debug, Clone)]
@@ -540,7 +540,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqlxPostgresPool {
 #[cfg(feature = "sqlx-postgres")]
 mod tests {
     use super::*;
-    use crate::{env::get_sqlx_postgres_url, pool::PoolConfig, template::DatabaseTemplate};
+    use crate::{env::get_sqlx_postgres_url, pool::PoolConfig};
 
     #[tokio::test]
     async fn test_sqlx_backend() {
@@ -568,13 +568,13 @@ mod tests {
     async fn test_sqlx_template() {
         let backend = SqlxPostgresBackend::new(&get_sqlx_postgres_url().unwrap()).unwrap();
 
-        let template = DatabaseTemplate::new(backend, PoolConfig::default(), 5)
+        let template = crate::test_db::TestDatabaseTemplate::new(backend, PoolConfig::default(), 5)
             .await
             .unwrap();
 
         // Initialize template with a table
         template
-            .initialize_template(|conn| async move {
+            .initialize(|conn| async move {
                 sqlx::query("CREATE TABLE test (id SERIAL PRIMARY KEY, value TEXT);")
                     .execute(&conn.pool)
                     .await
@@ -590,12 +590,12 @@ mod tests {
             .unwrap();
 
         // Get two separate databases
-        let db1 = template.get_immutable_database().await.unwrap();
-        let db2 = template.get_immutable_database().await.unwrap();
+        let db1 = template.create_test_database().await.unwrap();
+        let db2 = template.create_test_database().await.unwrap();
 
         // Verify they are separate
-        let conn1 = db1.get_pool().acquire().await.unwrap();
-        let conn2 = db2.get_pool().acquire().await.unwrap();
+        let conn1 = db1.pool.acquire().await.unwrap();
+        let conn2 = db2.pool.acquire().await.unwrap();
 
         // Insert into db1
         sqlx::query("INSERT INTO test (value) VALUES ($1)")

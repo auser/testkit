@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use crate::{error::Result, pool::PoolConfig, template::DatabaseName};
+use crate::{error::Result, pool::PoolConfig, test_db::DatabaseName};
 
 /// A trait for database connections that can be pooled
 #[async_trait]
@@ -21,9 +21,6 @@ pub trait Connection: Send {
 
     /// Begin a new transaction
     async fn begin(&mut self) -> Result<Self::Transaction<'_>>;
-
-    // /// Get the database URL for this connection
-    // fn connection_string(&self) -> String;
 }
 
 /// A trait for database backends that can create and manage databases

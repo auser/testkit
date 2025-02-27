@@ -6,7 +6,7 @@ use crate::{
     backend::{Connection, DatabaseBackend, DatabasePool},
     error::{PoolError, Result},
     pool::PoolConfig,
-    template::DatabaseName,
+    test_db::DatabaseName,
 };
 
 #[derive(Debug, Clone)]

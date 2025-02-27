@@ -119,6 +119,52 @@ DATABASE_URL=mysql://user:password@localhost:3306/mysql
 DATABASE_URL=/path/to/sqlite/databases
 ```
 
+## Using with_test_db in External Crates
+
+When using the `with_test_db!` macro in an external crate, you need to properly import both the macro and the required types:
+
+```rust
+use db_testkit::prelude::*;
+use db_testkit::{TestDatabase, with_test_db};
+use db_testkit::backends::sqlx::SqlxPostgresBackend;
+
+#[tokio::test]
+async fn test_external_crate_usage() {
+    // Method 1: Using the macro with type annotation
+    with_test_db!(|db: TestDatabase<SqlxPostgresBackend>| async move {
+        // Get a connection from the pool
+        let mut conn = db.test_pool.acquire().await.unwrap();
+        
+        // Your test code here
+        
+        Ok(())
+    });
+    
+    // Method 2: Using the macro with custom URL
+    with_test_db!(
+        "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable",
+        |db: TestDatabase<SqlxPostgresBackend>| async move {
+            // Get a connection from the pool
+            let mut conn = db.test_pool.acquire().await.unwrap();
+            
+            // Your test code here
+            
+            Ok(())
+        }
+    );
+}
+
+### Common Issues
+
+If you encounter errors like:
+- `expected expression, found $`
+- `cannot find value backend in this scope`
+
+Make sure you:
+1. Import the macro with `use db_testkit::with_test_db;`
+2. Import the correct backend type (e.g., `use db_testkit::backends::sqlx::SqlxPostgresBackend;`)
+3. Specify the full type in the macro: `|db: TestDatabase<SqlxPostgresBackend>|`
+
 ## Contributing
 
 Contributions are welcome! Here's how you can help:

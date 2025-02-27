@@ -9,7 +9,7 @@ use crate::{
     env::get_postgres_url,
     migrations::RunSql,
     pool::PoolConfig,
-    template::DatabaseTemplate,
+    test_db::TestDatabaseTemplate,
 };
 
 #[allow(dead_code)]
@@ -39,7 +39,7 @@ async fn test_postgres_template() {
     let postgres_url = get_postgres_url().unwrap();
     let backend = PostgresBackend::new(&postgres_url).await.unwrap();
 
-    let template = DatabaseTemplate::new(backend, PoolConfig::default(), 5)
+    let template = TestDatabaseTemplate::new(backend, PoolConfig::default(), 5)
         .await
         .unwrap();
 
@@ -90,7 +90,7 @@ async fn test_postgres_template() {
 async fn test_mysql_template() {
     let backend = MySqlBackend::new(&get_mysql_url().unwrap()).unwrap();
 
-    let template = DatabaseTemplate::new(backend, PoolConfig::default(), 5)
+    let template = TestDatabaseTemplate::new(backend, PoolConfig::default(), 5)
         .await
         .unwrap();
 
@@ -142,7 +142,7 @@ async fn test_parallel_databases() {
     let backend = crate::PostgresBackend::new(&crate::prelude::get_postgres_url().unwrap())
         .await
         .unwrap();
-    let template = crate::DatabaseTemplate::new(backend, crate::PoolConfig::default(), 10)
+    let template = crate::TestDatabaseTemplate::new(backend, crate::PoolConfig::default(), 10)
         .await
         .unwrap();
 
@@ -194,7 +194,7 @@ async fn test_concurrent_operations() {
     let backend = crate::PostgresBackend::new(&crate::prelude::get_postgres_url().unwrap())
         .await
         .unwrap();
-    let template = crate::DatabaseTemplate::new(backend, crate::PoolConfig::default(), 1)
+    let template = crate::TestDatabaseTemplate::new(backend, crate::PoolConfig::default(), 1)
         .await
         .unwrap();
 

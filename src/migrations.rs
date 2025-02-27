@@ -72,7 +72,7 @@ mod tests {
     use super::*;
     use crate::{
         backend::DatabasePool, backends::PostgresBackend, env::get_postgres_url, pool::PoolConfig,
-        template::DatabaseTemplate,
+        test_db::TestDatabaseTemplate,
     };
 
     #[tokio::test]
@@ -80,7 +80,7 @@ mod tests {
         let backend = PostgresBackend::new(&get_postgres_url().unwrap())
             .await
             .unwrap();
-        let template = DatabaseTemplate::new(backend, PoolConfig::default(), 5)
+        let template = TestDatabaseTemplate::new(backend, PoolConfig::default(), 5)
             .await
             .unwrap();
 
