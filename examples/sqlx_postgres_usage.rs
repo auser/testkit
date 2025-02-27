@@ -3,7 +3,7 @@ use db_testkit::prelude::*;
 
 #[cfg(all(feature = "sqlx-backend", not(feature = "postgres")))]
 #[tokio::main]
-async fn main() -> std::result::Result<(), db_testkit::PoolError> {
+async fn main() -> std::result::Result<(), db_testkit::DbError> {
     use sqlx::Row;
 
     println!("Running the example with SQLx PostgreSQL backend...");
@@ -46,11 +46,12 @@ async fn main() -> std::result::Result<(), db_testkit::PoolError> {
                 row.get::<String, _>("email")
             );
 
-            // Note: We still need to specify the Result type for the return value
-            // But we don't need to specify any TestDatabaseTemplate types
-            Ok(()) as std::result::Result<(), ()>
+            // Now we can just return a typed result without annotation
+            let result: Result<()> = Ok(());
+            result
         }
-    );
+    )
+    .await?;
 
     Ok(())
 }

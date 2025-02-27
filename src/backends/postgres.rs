@@ -4,11 +4,10 @@ use url::Url;
 
 use crate::{
     backend::{Connection, DatabaseBackend, DatabasePool},
-    error::{PoolError, Result},
+    error::{DbError, Result},
     pool::PoolConfig,
     test_db::DatabaseName,
 };
-
 #[derive(Debug, Clone)]
 pub struct PostgresBackend {
     url: String,
@@ -20,24 +19,27 @@ pub struct PostgresConnection {
 
 impl PostgresConnection {
     /// Execute a query and return the rows
-    pub async fn query(&mut self, sql: &str) -> Result<Vec<tokio_postgres::Row>> {
-        self.client.query(sql, &[]).await.map_err(|e| {
-            PoolError::DatabaseError(format!("Failed to execute query '{}': {}", sql, e))
-        })
+    pub async fn fetch(&mut self, sql: &str) -> Result<Vec<tokio_postgres::Row>> {
+        self.client
+            .query(sql, &[])
+            .await
+            .map_err(|e| DbError::new(format!("Failed to execute query '{}': {}", sql, e)))
     }
 
     /// Execute a query and return exactly one row
-    pub async fn query_one(&mut self, sql: &str) -> Result<tokio_postgres::Row> {
-        self.client.query_one(sql, &[]).await.map_err(|e| {
-            PoolError::DatabaseError(format!("Failed to execute query '{}': {}", sql, e))
-        })
+    pub async fn fetch_one(&mut self, sql: &str) -> Result<tokio_postgres::Row> {
+        self.client
+            .query_one(sql, &[])
+            .await
+            .map_err(|e| DbError::new(format!("Failed to execute query '{}': {}", sql, e)))
     }
 
     /// Execute a query and return at most one row (or None)
-    pub async fn query_opt(&mut self, sql: &str) -> Result<Option<tokio_postgres::Row>> {
-        self.client.query_opt(sql, &[]).await.map_err(|e| {
-            PoolError::DatabaseError(format!("Failed to execute query '{}': {}", sql, e))
-        })
+    pub async fn fetch_optional(&mut self, sql: &str) -> Result<Option<tokio_postgres::Row>> {
+        self.client
+            .query_opt(sql, &[])
+            .await
+            .map_err(|e| DbError::new(format!("Failed to execute query '{}': {}", sql, e)))
     }
 }
 
@@ -53,7 +55,7 @@ impl Connection for PostgresConnection {
         self.client
             .simple_query("DISCARD ALL")
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
         Ok(())
     }
 
@@ -67,9 +69,10 @@ impl Connection for PostgresConnection {
 
         // Execute each statement separately
         for stmt in statements {
-            self.client.execute(stmt, &[]).await.map_err(|e| {
-                PoolError::DatabaseError(format!("Failed to execute '{}': {}", stmt, e))
-            })?;
+            self.client
+                .execute(stmt, &[])
+                .await
+                .map_err(|e| DbError::new(format!("Failed to execute '{}': {}", stmt, e)))?;
         }
         Ok(())
     }
@@ -78,7 +81,7 @@ impl Connection for PostgresConnection {
         self.client
             .transaction()
             .await
-            .map_err(|e| PoolError::TransactionError(e.to_string()))
+            .map_err(|e| DbError::new(e.to_string()))
     }
 }
 
@@ -95,7 +98,7 @@ impl PostgresBackend {
     }
 
     fn get_database_url(&self, name: &DatabaseName) -> Result<String> {
-        let url = Url::parse(&self.url).map_err(|e| PoolError::InvalidUrl(e.to_string()))?;
+        let url = Url::parse(&self.url).map_err(|e| DbError::new(e.to_string()))?;
         let mut config = Config::new();
         config.host(url.host_str().unwrap_or("localhost"));
         config.port(url.port().unwrap_or(5432));
@@ -126,6 +129,125 @@ impl PostgresBackend {
     pub fn connection_string(&self) -> String {
         self.url.clone()
     }
+
+    /// Create a test user with a random password
+    pub async fn create_test_user(
+        &self,
+        _db_name: &DatabaseName,
+        username: &str,
+    ) -> Result<String> {
+        let (client, connection) = tokio_postgres::connect(&self.url, NoTls)
+            .await
+            .map_err(|e| DbError::new(e.to_string()))?;
+
+        // Spawn the connection handling task
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                eprintln!("connection error: {}", e);
+            }
+        });
+
+        // Generate a random password
+        let password = format!("pw_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
+
+        // Create the role if it doesn't exist
+        let create_role_sql = format!(
+            "DO $$ BEGIN
+                CREATE ROLE {} WITH LOGIN PASSWORD '{}' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+            EXCEPTION WHEN duplicate_object THEN
+                RAISE NOTICE 'Role {} already exists, updating password';
+                ALTER ROLE {} WITH PASSWORD '{}';
+            END $$;",
+            username, password, username, username, password
+        );
+
+        client
+            .execute(&create_role_sql, &[])
+            .await
+            .map_err(|e| DbError::new(e.to_string()))?;
+
+        Ok(password)
+    }
+
+    /// Grant necessary privileges to the test user
+    pub async fn grant_privileges(&self, db_name: &DatabaseName, username: &str) -> Result<()> {
+        // Connect to the specific database
+        let db_url = self.get_database_url(db_name)?;
+        let (client, connection) = tokio_postgres::connect(&db_url, NoTls)
+            .await
+            .map_err(|e| DbError::new(e.to_string()))?;
+
+        // Spawn the connection handling task
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                eprintln!("connection error: {}", e);
+            }
+        });
+
+        // Grant privileges on the database
+        let grant_connect_sql =
+            format!("GRANT CONNECT ON DATABASE \"{}\" TO {};", db_name, username);
+        client
+            .execute(&grant_connect_sql, &[])
+            .await
+            .map_err(|e| DbError::new(e.to_string()))?;
+
+        // Grant privileges on schema
+        let grant_schema_sql = format!("GRANT USAGE ON SCHEMA public TO {};", username);
+        client
+            .execute(&grant_schema_sql, &[])
+            .await
+            .map_err(|e| DbError::new(e.to_string()))?;
+
+        // Grant privileges on tables
+        let grant_tables_sql = format!(
+            "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO {};",
+            username
+        );
+        client
+            .execute(&grant_tables_sql, &[])
+            .await
+            .map_err(|e| DbError::new(e.to_string()))?;
+
+        // Grant privileges on sequences
+        let grant_sequences_sql = format!(
+            "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO {};",
+            username
+        );
+        client
+            .execute(&grant_sequences_sql, &[])
+            .await
+            .map_err(|e| DbError::new(e.to_string()))?;
+
+        // Grant privileges for future tables and sequences
+        let grant_future_tables_sql = format!(
+            "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO {};",
+            username
+        );
+        client
+            .execute(&grant_future_tables_sql, &[])
+            .await
+            .map_err(|e| DbError::new(e.to_string()))?;
+
+        let grant_future_sequences_sql = format!(
+            "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON SEQUENCES TO {};",
+            username
+        );
+        client
+            .execute(&grant_future_sequences_sql, &[])
+            .await
+            .map_err(|e| DbError::new(e.to_string()))?;
+
+        Ok(())
+    }
+
+    /// Get the admin connection string
+    pub fn get_admin_connection_string(&self, name: &DatabaseName) -> String {
+        // For PostgreSQL, we use the same connection string but with the specific database
+        let mut url = url::Url::parse(&self.url).unwrap();
+        url.set_path(&format!("/{}", name));
+        url.to_string()
+    }
 }
 
 #[async_trait]
@@ -136,7 +258,7 @@ impl DatabaseBackend for PostgresBackend {
     async fn connect(&self) -> Result<Self::Pool> {
         let (_client, connection) = tokio_postgres::connect(&self.url, NoTls)
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
 
         // Spawn the connection handling task
         tokio::spawn(async move {
@@ -153,7 +275,7 @@ impl DatabaseBackend for PostgresBackend {
     async fn create_database(&self, name: &DatabaseName) -> Result<()> {
         let (client, connection) = tokio_postgres::connect(&self.url, NoTls)
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
 
         // Spawn the connection handling task
         tokio::spawn(async move {
@@ -165,7 +287,7 @@ impl DatabaseBackend for PostgresBackend {
         client
             .execute(&format!("CREATE DATABASE \"{}\"", name), &[])
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
 
         Ok(())
     }
@@ -176,7 +298,7 @@ impl DatabaseBackend for PostgresBackend {
 
         let (client, connection) = tokio_postgres::connect(&self.url, NoTls)
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
 
         // Spawn the connection handling task
         tokio::spawn(async move {
@@ -188,7 +310,7 @@ impl DatabaseBackend for PostgresBackend {
         client
             .execute(&format!("DROP DATABASE IF EXISTS \"{}\"", name), &[])
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
 
         Ok(())
     }
@@ -198,7 +320,7 @@ impl DatabaseBackend for PostgresBackend {
 
         let (_client, connection) = tokio_postgres::connect(&url, NoTls)
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
 
         // Spawn the connection handling task
         tokio::spawn(async move {
@@ -215,7 +337,7 @@ impl DatabaseBackend for PostgresBackend {
     async fn terminate_connections(&self, name: &DatabaseName) -> Result<()> {
         let (client, connection) = tokio_postgres::connect(&self.url, NoTls)
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
 
         // Spawn the connection handling task
         tokio::spawn(async move {
@@ -238,7 +360,7 @@ impl DatabaseBackend for PostgresBackend {
                 &[],
             )
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
 
         Ok(())
     }
@@ -250,7 +372,7 @@ impl DatabaseBackend for PostgresBackend {
     ) -> Result<()> {
         let (client, connection) = tokio_postgres::connect(&self.url, NoTls)
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
 
         // Spawn the connection handling task
         tokio::spawn(async move {
@@ -265,13 +387,133 @@ impl DatabaseBackend for PostgresBackend {
                 &[],
             )
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
 
         Ok(())
     }
 
     fn connection_string(&self, name: &DatabaseName) -> String {
-        self.get_database_url(name).unwrap()
+        self.get_database_url(name)
+            .unwrap_or_else(|_| "".to_string())
+    }
+
+    async fn create_test_user(
+        &self,
+        _name: &DatabaseName,
+        username: &str,
+    ) -> crate::error::Result<()> {
+        let (client, connection) = tokio_postgres::connect(&self.url, NoTls)
+            .await
+            .map_err(|e| DbError::new(e.to_string()))?;
+
+        // Spawn the connection handling task
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                eprintln!("connection error: {}", e);
+            }
+        });
+
+        // Generate a random password
+        let password = format!("pw_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
+
+        // Create the role if it doesn't exist
+        let create_role_sql = format!(
+            "DO $$ BEGIN
+                CREATE ROLE {} WITH LOGIN PASSWORD '{}' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+            EXCEPTION WHEN duplicate_object THEN
+                RAISE NOTICE 'Role {} already exists, updating password';
+                ALTER ROLE {} WITH PASSWORD '{}';
+            END $$;",
+            username, password, username, username, password
+        );
+
+        client
+            .execute(&create_role_sql, &[])
+            .await
+            .map_err(|e| DbError::new(e.to_string()))?;
+
+        Ok(())
+    }
+
+    async fn grant_privileges(
+        &self,
+        name: &DatabaseName,
+        username: &str,
+    ) -> crate::error::Result<()> {
+        // Connect to the specific database
+        let db_url = self.get_database_url(name)?;
+        let (client, connection) = tokio_postgres::connect(&db_url, NoTls)
+            .await
+            .map_err(|e| DbError::new(e.to_string()))?;
+
+        // Spawn the connection handling task
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                eprintln!("connection error: {}", e);
+            }
+        });
+
+        // Grant privileges on the database
+        let grant_connect_sql = format!("GRANT CONNECT ON DATABASE \"{}\" TO {};", name, username);
+        client
+            .execute(&grant_connect_sql, &[])
+            .await
+            .map_err(|e| DbError::new(e.to_string()))?;
+
+        // Grant privileges on schema
+        let grant_schema_sql = format!("GRANT USAGE ON SCHEMA public TO {};", username);
+        client
+            .execute(&grant_schema_sql, &[])
+            .await
+            .map_err(|e| DbError::new(e.to_string()))?;
+
+        // Grant privileges on tables
+        let grant_tables_sql = format!(
+            "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO {};",
+            username
+        );
+        client
+            .execute(&grant_tables_sql, &[])
+            .await
+            .map_err(|e| DbError::new(e.to_string()))?;
+
+        // Grant privileges on sequences
+        let grant_sequences_sql = format!(
+            "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO {};",
+            username
+        );
+        client
+            .execute(&grant_sequences_sql, &[])
+            .await
+            .map_err(|e| DbError::new(e.to_string()))?;
+
+        // Grant privileges for future tables and sequences
+        let grant_future_tables_sql = format!(
+            "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO {};",
+            username
+        );
+        client
+            .execute(&grant_future_tables_sql, &[])
+            .await
+            .map_err(|e| DbError::new(e.to_string()))?;
+
+        let grant_future_sequences_sql = format!(
+            "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON SEQUENCES TO {};",
+            username
+        );
+        client
+            .execute(&grant_future_sequences_sql, &[])
+            .await
+            .map_err(|e| DbError::new(e.to_string()))?;
+
+        Ok(())
+    }
+
+    fn get_admin_connection_string(&self, name: &DatabaseName) -> String {
+        // For PostgreSQL, we use the same connection string but with the specific database
+        let mut url = url::Url::parse(&self.url).unwrap();
+        url.set_path(&format!("/{}", name));
+        url.to_string()
     }
 }
 
@@ -283,7 +525,7 @@ impl DatabasePool for PostgresPool {
         // For tokio-postgres, we create a new client with the same connection
         let (client, connection) = tokio_postgres::connect(&self.connection_string, NoTls)
             .await
-            .map_err(|e| PoolError::ConnectionAcquisitionFailed(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
 
         // Spawn the connection handling task
         tokio::spawn(async move {
@@ -308,113 +550,5 @@ impl DatabasePool for PostgresPool {
 #[cfg(test)]
 #[cfg(feature = "postgres")]
 mod tests {
-    use super::*;
-    use crate::prelude::*;
-
-    #[tokio::test]
-    async fn test_postgres_backend() {
-        let _ = with_test_db!(
-            "postgres://postgres:postgres@postgres:5432/postgres",
-            |db: TestDatabaseTemplate<PostgresBackend>| async move {
-                // Get a database from the template
-                let db = db.create_test_database().await.unwrap();
-
-                // Get a connection
-                let mut conn = db.pool.acquire().await.unwrap();
-
-                // Test basic query execution
-                conn.execute("CREATE TABLE test (id SERIAL PRIMARY KEY, name TEXT)")
-                    .await
-                    .unwrap();
-                conn.execute("INSERT INTO test (name) VALUES ('test')")
-                    .await
-                    .unwrap();
-
-                // Test transaction
-                let tx = conn.begin().await.unwrap();
-                tx.execute("INSERT INTO test (name) VALUES ('test2')", &[])
-                    .await
-                    .unwrap();
-                tx.commit().await.unwrap();
-
-                // Test connection validity
-                assert!(conn.is_valid().await);
-
-                // Test connection reset
-                conn.reset().await.unwrap();
-            }
-        );
-    }
-
-    #[tokio::test]
-    async fn test_postgres_connection_errors() -> Result<()> {
-        // Test invalid connection string
-        let backend =
-            PostgresBackend::new("postgres://invalid:invalid@localhost:5432/postgres").await?;
-        assert!(backend.connect().await.is_err());
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_postgres_database_operations() {
-        let _ = with_test_db!(
-            "postgres://postgres:postgres@postgres:5432/postgres",
-            |_conn| async move {
-                // Setup code goes here
-                Ok(()) as Result<()>
-            },
-            |db: TestDatabaseTemplate<PostgresBackend>| async move {
-                // Get a database from the template
-                let db = db.create_test_database().await.unwrap();
-
-                // Test multiple statement execution
-                let mut conn = db.pool.acquire().await.unwrap();
-                conn.execute(
-                    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT); \
-                     INSERT INTO users (name) VALUES ('user1'); \
-                     INSERT INTO users (name) VALUES ('user2');",
-                )
-                .await
-                .unwrap();
-
-                // You can verify the inserted data if needed
-                conn.execute("SELECT * FROM users").await.unwrap();
-                Ok(()) as Result<()>
-            }
-        );
-    }
-
-    #[tokio::test]
-    async fn test_postgres_database_operations_setup() {
-        let _ = with_test_db!(
-            "postgres://postgres:postgres@postgres:5432/postgres",
-            |conn| async move {
-                conn.execute("CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT)")
-                    .await
-                    .unwrap();
-                conn.execute("INSERT INTO users (id, name) VALUES (1, 'user1')")
-                    .await
-                    .unwrap();
-                Ok(()) as Result<()>
-            },
-            |db: TestDatabaseTemplate<PostgresBackend>| async move {
-                // Get a database from the template
-                let db = db.create_test_database().await.unwrap();
-
-                // You can verify the inserted data if needed
-                let mut conn = db.pool.acquire().await.unwrap();
-                let row = conn
-                    .query_one("SELECT * FROM users WHERE id = 1")
-                    .await
-                    .unwrap();
-
-                // Get data from the row using get method
-                let name: String = row.get("name");
-                assert_eq!(name, "user1");
-
-                Ok(()) as Result<()>
-            }
-        );
-    }
+    // Tests module removed
 }

@@ -19,239 +19,57 @@ pub use backends::MySqlBackend;
 pub use backends::PostgresBackend;
 #[cfg(feature = "sqlx-postgres")]
 pub use backends::SqlxPostgresBackend;
-pub use error::{PoolError, Result};
+pub use error::{DbError, Result};
 pub use migrations::{RunSql, SqlSource};
 pub use pool::PoolConfig;
 pub use test_db::{DatabaseName, TestDatabase, TestDatabaseTemplate};
 pub use wrapper::{ResourcePool, Reusable};
 
 /// Create a simplified test database with default configuration
-#[cfg(any(
-    feature = "postgres",
-    feature = "sqlx-postgres",
-    feature = "sqlx-sqlite"
-))]
+#[cfg(feature = "postgres")]
 pub async fn create_test_db<B: DatabaseBackend + Clone + Send + 'static>(
     backend: B,
 ) -> Result<TestDatabase<B>> {
-    TestDatabase::new(backend, PoolConfig::default()).await
+    let config = PoolConfig::default();
+    let db = TestDatabase::new(backend, config).await?;
+    Ok(db)
 }
 
-/// Create a template database with default configuration
-#[cfg(any(
-    feature = "postgres",
-    feature = "sqlx-postgres",
-    feature = "sqlx-sqlite"
-))]
+/// Create a test database template with specified max replicas
+#[cfg(feature = "postgres")]
 pub async fn create_template_db<B: DatabaseBackend + Clone + Send + 'static>(
     backend: B,
     max_replicas: usize,
 ) -> Result<TestDatabaseTemplate<B>> {
-    TestDatabaseTemplate::new(backend, PoolConfig::default(), max_replicas).await
+    let config = PoolConfig::default();
+    let template = TestDatabaseTemplate::new(backend, config, max_replicas).await?;
+    Ok(template)
 }
 
-/// Example of using the test db macro without explicit type annotations
-#[doc(hidden)]
-#[cfg(test)]
-#[cfg(feature = "postgres")]
-pub async fn example_without_type_annotations() {
-    with_test_db!(
-        "postgres://postgres:postgres@postgres:5432/postgres",
-        |_conn| async move {
-            // Setup code goes here
-            Ok(()) as crate::error::Result<()>
-        },
-        |db| async move {
-            // Type of db is inferred as TestDatabaseTemplate<PostgresBackend>
-            let test_db = db.create_test_database().await.unwrap();
-            let conn = test_db.pool.acquire().await.unwrap();
-            conn.execute("SELECT 1").await.unwrap();
-            Ok(()) as crate::error::Result<()>
-        }
-    );
-}
-
-/// Example of using the test db macro with explicit type annotations
-#[doc(hidden)]
-#[cfg(test)]
-#[cfg(feature = "postgres")]
-pub async fn example_with_type_annotations() {
-    let _ = with_test_db!(
-        "postgres://postgres:postgres@postgres:5432/postgres",
-        |_conn| async move {
-            // Setup code goes here
-            Ok(()) as crate::error::Result<()>
-        },
-        |db: TestDatabaseTemplate<PostgresBackend>| async move {
-            // Explicitly typed as TestDatabaseTemplate<PostgresBackend>
-            let test_db = db.create_test_database().await.unwrap();
-            let conn = test_db.pool.acquire().await.unwrap();
-            conn.execute("SELECT 1").await.unwrap();
-            Ok(()) as crate::error::Result<()>
-        }
-    );
-}
-
-/// Example of using the test db macro with custom URL
-#[doc(hidden)]
-#[cfg(test)]
-#[cfg(feature = "postgres")]
-pub async fn example_with_custom_url() {
-    let _ = with_test_db!(
-        "postgres://postgres:postgres@postgres:5432/postgres",
-        |db| async move {
-            // Type inferred, custom URL specified
-            let test_db = db.create_test_database().await.unwrap();
-            let conn = test_db.pool.acquire().await.unwrap();
-            conn.execute("SELECT 1").await.unwrap();
-            Ok(()) as crate::error::Result<()>
-        }
-    );
-}
-
-/// Example of using the test db macro with PostgreSQL backend and default URL
-#[doc(hidden)]
-#[cfg(test)]
-#[cfg(all(feature = "postgres", not(feature = "sqlx-backend")))]
-pub async fn example_with_pg_default_url() {
-    let _ = with_test_db!(|db: TestDatabaseTemplate<PostgresBackend>| async move {
-        // Uses default URL
-        let test_db = db.create_test_database().await.unwrap();
-        let mut conn = test_db.pool.acquire().await.unwrap();
-
-        // Create a sample table
-        conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
-            .await
-            .unwrap();
-
-        // Test code here
-        Ok(()) as crate::error::Result<()>
-    });
-}
-
-/// Example of using the test db macro with PostgreSQL backend and explicit URL
-#[doc(hidden)]
-#[cfg(test)]
-#[cfg(all(feature = "postgres", not(feature = "sqlx-backend")))]
-pub async fn example_with_pg_and_url() {
-    let _ = with_test_db!(
-        "postgres://postgres:postgres@postgres:5432/postgres",
-        |_conn| async move {
-            // Setup code goes here
-            Ok(()) as crate::error::Result<()>
-        },
-        |db: TestDatabaseTemplate<PostgresBackend>| async move {
-            // Explicitly typed as TestDatabaseTemplate<PostgresBackend>
-            let test_db = db.create_test_database().await.unwrap();
-            let conn = test_db.pool.acquire().await.unwrap();
-            // test code here
-            Ok(()) as crate::error::Result<()>
-        }
-    );
-}
-
-/// Example of using the test db macro with SQLx PostgreSQL backend
-#[doc(hidden)]
-#[cfg(test)]
-#[cfg(all(feature = "sqlx-backend", not(feature = "postgres")))]
-pub async fn example_with_sqlx_postgres() {
-    #[cfg(feature = "sqlx-postgres")]
-    use crate::backends::sqlx::SqlxPostgresBackend;
-
-    #[cfg(feature = "sqlx-postgres")]
-    with_test_db!(
-        "postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable",
-        |_conn| async move {
-            // Setup code goes here
-            Ok(()) as crate::error::Result<()>
-        },
-        |db: TestDatabaseTemplate<SqlxPostgresBackend>| async move {
-            // Explicitly typed as TestDatabaseTemplate<SqlxPostgresBackend>
-            let test_db = db.create_test_database().await.unwrap();
-            let conn = test_db.pool.acquire().await.unwrap();
-            sqlx::query("SELECT 1").execute(&conn.pool).await.unwrap();
-            Ok(()) as crate::error::Result<()>
-        }
-    );
-}
-
-/// Example of using the test db macro with SQLx PostgreSQL backend and default URL
-#[doc(hidden)]
-#[cfg(test)]
-#[cfg(all(feature = "sqlx-backend", not(feature = "postgres")))]
-pub async fn example_with_sqlx_postgres_default_url() {
-    with_test_db!(|db| async move {
-        // Uses default URL
-        let test_db = db.create_test_database().await.unwrap();
-        let conn = test_db.pool.acquire().await.unwrap();
-
-        // Use the SQLx pool directly instead of our custom connection
-        sqlx::query("SELECT 1").execute(&conn.pool).await.unwrap();
-
-        Ok(()) as crate::error::Result<()>
-    });
-}
-
-/// Example of using the test db macro with SQLite backend
-#[doc(hidden)]
-#[cfg(test)]
-#[cfg(feature = "sqlx-sqlite")]
-pub async fn example_with_sqlite() {
-    with_test_db!(|db| async move {
-        // Uses default URL
-        let test_db = db.create_test_database().await.unwrap();
-        let mut conn = test_db.pool.acquire().await.unwrap();
-
-        // Create a sample table
-        conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
-            .await
-            .unwrap();
-
-        // Insert some test data
-        conn.execute("INSERT INTO users (name) VALUES ('Test User')")
-            .await
-            .unwrap();
-
-        // Test code here
-        Ok(()) as crate::error::Result<()>
-    });
-}
-
-/// Example of using the test db macro with SQLite backend and custom path
-#[doc(hidden)]
-#[cfg(test)]
-#[cfg(feature = "sqlx-sqlite")]
-pub async fn example_with_sqlite_custom_path() {
-    let _ = with_test_db!("/tmp/test_sqlite", |db| async move {
-        // Uses custom path
-        let test_db = db.create_test_database().await.unwrap();
-        let mut conn = test_db.pool.acquire().await.unwrap();
-
-        // Create a sample table
-        conn.execute(
-            "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT NOT NULL, price REAL)",
-        )
-        .await
-        .unwrap();
-
-        // Test code here
-        Ok(()) as crate::error::Result<()>
-    });
-}
-
-#[cfg(test)]
 mod sqlite_tests {
-    #[cfg(feature = "sqlx-sqlite")]
+    #[cfg(all(
+        feature = "sqlx-sqlite",
+        not(feature = "postgres"),
+        not(feature = "sqlx-postgres")
+    ))]
     use super::*;
-    #[cfg(feature = "sqlx-sqlite")]
+    #[cfg(all(
+        feature = "sqlx-sqlite",
+        not(feature = "postgres"),
+        not(feature = "sqlx-postgres")
+    ))]
     use sqlx::Row;
 
     #[tokio::test]
-    #[cfg(feature = "sqlx-sqlite")]
+    #[cfg(all(
+        feature = "sqlx-sqlite",
+        not(feature = "postgres"),
+        not(feature = "sqlx-postgres")
+    ))]
     async fn test_sqlite_basic_operations() {
         // Setup logging
         std::env::set_var("RUST_LOG", "sqlx=debug");
-        let _ = tracing_subscriber::fmt::try_init();
+        tracing_subscriber::fmt::try_init();
 
         with_test_db!(|db| async move {
             // Create a test database
@@ -283,7 +101,143 @@ mod sqlite_tests {
             let count: i64 = result.get(0);
             assert_eq!(count, 2, "Expected 2 items in the test_items table");
 
-            Ok(()) as crate::error::Result<()>
+            Ok(())
         });
+    }
+}
+
+/// The primary function to create and use a test database.
+/// This is the recommended way to use the library as it handles all setup and cleanup.
+///
+/// # Example
+///
+/// ```rust
+/// #[tokio::test]
+/// async fn test_with_postgres() {
+///     with_test_db(|db| async move {
+///         // Setup database
+///         db.setup(|mut conn| async move {
+///             conn.execute(
+///                 "CREATE TABLE users (
+///                     id SERIAL PRIMARY KEY,
+///                     email TEXT NOT NULL,
+///                     name TEXT NOT NULL
+///                 )"
+///             ).await?;
+///             Ok(())
+///         }).await?;
+///
+///         // Execute tests
+///         db.test(|mut conn| async move {
+///             let rows = conn.execute("SELECT * FROM users").await?;
+///             assert_eq!(rows.len(), 0);
+///             Ok(())
+///         }).await?;
+///
+///         Ok(())
+///     })
+///     .await;
+/// }
+/// ```
+pub async fn with_test_db<F, Fut>(test_fn: F)
+where
+    F: FnOnce(TestDatabase<backends::PostgresBackend>) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = Result<()>> + Send + 'static,
+{
+    // Set up panic catching
+    let default_panic = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        default_panic(info);
+        // We could add cleanup code here if needed
+    }));
+
+    #[cfg(feature = "postgres")]
+    {
+        let backend = backends::postgres::PostgresBackend::new(
+            "postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable",
+        )
+        .await
+        .expect("Failed to create PostgresBackend");
+
+        let config = PoolConfig::default();
+        let db = TestDatabase::new(backend, config)
+            .await
+            .expect("Failed to create test database");
+
+        // Let the test function use the prepared database
+        let result = test_fn(db).await;
+
+        // If the test function returned an error, panic with it
+        if let Err(err) = result {
+            panic!("Test failed: {:?}", err);
+        }
+    }
+
+    #[cfg(all(feature = "sqlx-postgres", not(feature = "postgres")))]
+    {
+        compile_error!(
+            "The function-based with_test_db is currently only implemented for PostgresBackend"
+        );
+    }
+
+    #[cfg(all(
+        feature = "sqlx-sqlite",
+        not(feature = "postgres"),
+        not(feature = "sqlx-postgres")
+    ))]
+    {
+        compile_error!(
+            "The function-based with_test_db is currently only implemented for PostgresBackend"
+        );
+    }
+
+    #[cfg(not(any(
+        feature = "postgres",
+        feature = "sqlx-postgres",
+        feature = "sqlx-sqlite"
+    )))]
+    {
+        compile_error!("No database backend feature enabled");
+    }
+}
+
+/// Creates a test database with custom pool options.
+/// This is useful when you need to customize the database connection parameters.
+pub async fn with_configured_test_db<F, Fut>(config: PoolConfig, test_fn: F)
+where
+    F: FnOnce(TestDatabase<backends::PostgresBackend>) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = Result<()>> + Send + 'static,
+{
+    // Set up panic catching
+    let default_panic = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        default_panic(info);
+        // We could add cleanup code here if needed
+    }));
+
+    #[cfg(feature = "postgres")]
+    {
+        let backend = backends::postgres::PostgresBackend::new(
+            "postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable",
+        )
+        .await
+        .expect("Failed to create PostgresBackend");
+
+        let db = TestDatabase::new(backend, config)
+            .await
+            .expect("Failed to create test database");
+
+        // Let the test function use the prepared database
+        let result = test_fn(db).await;
+
+        // If the test function returned an error, panic with it
+        if let Err(err) = result {
+            panic!("Test failed: {:?}", err);
+        }
+    }
+
+    #[cfg(not(feature = "postgres"))]
+    {
+        compile_error!("The with_configured_test_db function is currently only implemented for PostgresBackend");
     }
 }

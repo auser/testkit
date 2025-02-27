@@ -1,6 +1,6 @@
 use std::sync::OnceLock;
 
-use crate::error::Result;
+use crate::error::{DbError, Result};
 
 /// A static cell that ensures environment variables are loaded only once
 static ENV_LOADED: OnceLock<()> = OnceLock::new();
@@ -27,9 +27,8 @@ fn load_env() {
 #[cfg(feature = "postgres")]
 pub fn get_postgres_url() -> Result<String> {
     load_env();
-    std::env::var("DATABASE_URL").map_err(|_| {
-        PoolError::ConfigError("DATABASE_URL environment variable not found".to_string())
-    })
+    std::env::var("DATABASE_URL")
+        .map_err(|_| DbError::new("DATABASE_URL environment variable not found"))
 }
 
 /// Gets the MySQL database URL from environment variables.
@@ -44,9 +43,8 @@ pub fn get_postgres_url() -> Result<String> {
 #[cfg(feature = "mysql")]
 pub fn get_mysql_url() -> Result<String> {
     load_env();
-    std::env::var("DATABASE_URL").map_err(|_| {
-        PoolError::ConfigError("DATABASE_URL environment variable not found".to_string())
-    })
+    std::env::var("DATABASE_URL")
+        .map_err(|_| DbError::new("DATABASE_URL environment variable not found"))
 }
 
 /// Gets the SQLx PostgreSQL database URL from environment variables.
@@ -61,9 +59,8 @@ pub fn get_mysql_url() -> Result<String> {
 #[cfg(feature = "sqlx-postgres")]
 pub fn get_sqlx_postgres_url() -> Result<String> {
     load_env();
-    std::env::var("DATABASE_URL").map_err(|_| {
-        PoolError::ConfigError("DATABASE_URL environment variable not found".to_string())
-    })
+    std::env::var("DATABASE_URL")
+        .map_err(|_| DbError::new("DATABASE_URL environment variable not found"))
 }
 
 /// Gets the SQLite database URL from environment variables.

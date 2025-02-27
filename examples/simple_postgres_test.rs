@@ -1,19 +1,19 @@
-#[cfg(feature = "sqlx-sqlite")]
+#[cfg(feature = "postgres")]
 use db_testkit::prelude::*;
 
-#[cfg(feature = "sqlx-sqlite")]
+#[cfg(feature = "postgres")]
 #[tokio::main]
 async fn main() -> std::result::Result<(), db_testkit::DbError> {
     // Setup logging
-    std::env::set_var("RUST_LOG", "sqlx=debug");
+    std::env::set_var("RUST_LOG", "debug");
     let _ = tracing_subscriber::fmt::try_init();
 
-    println!("Starting SQLite test...");
+    println!("Starting PostgreSQL test...");
 
-    // Create a SQLite backend
-    let backend = SqliteBackend::new("/tmp/simple_sqlite_test")
+    // Create a PostgreSQL backend
+    let backend = PostgresBackend::new(&get_postgres_url().unwrap())
         .await
-        .expect("Failed to create SQLite backend");
+        .expect("Failed to create PostgreSQL backend");
 
     // Create a test database template
     let template = TestDatabaseTemplate::new(backend, PoolConfig::default(), 5)
@@ -37,7 +37,7 @@ async fn main() -> std::result::Result<(), db_testkit::DbError> {
         .expect("Failed to acquire connection");
 
     // Create a table
-    conn.execute("CREATE TABLE test_items (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
+    conn.execute("CREATE TABLE test_items (id SERIAL PRIMARY KEY, name TEXT NOT NULL)")
         .await
         .expect("Failed to create table");
 
@@ -50,11 +50,11 @@ async fn main() -> std::result::Result<(), db_testkit::DbError> {
 
     println!("Inserted data");
 
-    println!("SQLite test completed successfully!");
+    println!("PostgreSQL test completed successfully!");
     Ok(())
 }
 
-#[cfg(not(feature = "sqlx-sqlite"))]
+#[cfg(not(feature = "postgres"))]
 fn main() {
-    println!("This example requires the sqlx-sqlite feature");
+    println!("This example requires the postgres feature");
 }

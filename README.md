@@ -14,6 +14,8 @@ A Rust library for managing test databases with support for PostgreSQL, MySQL, a
 - Async/await support
 - Transaction management
 - Migration support
+- **No need to specify return types** - the library handles type inference for you
+- **Automatic user creation and privilege management** - the library creates test users with appropriate permissions
 
 ## Installation
 
@@ -21,7 +23,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-db-testkit = { version = "0.1.0", features = ["postgres"] }  # or other backends
+db-testkit = { version = "0.2.0", features = ["postgres"] }  # or other backends
 ```
 
 Available features:
@@ -32,7 +34,9 @@ Available features:
 
 ## Usage
 
-### PostgreSQL Example
+### Function-based API (Recommended)
+
+The function-based API provides a clean and simple way to work with test databases:
 
 ```rust
 use db_testkit::with_test_db;
@@ -40,6 +44,44 @@ use db_testkit::with_test_db;
 #[tokio::test]
 async fn test_with_postgres() {
     with_test_db(|db| async move {
+        // Setup database with admin permissions
+        db.setup(|mut conn| async move {
+            conn.execute(
+                "CREATE TABLE users (
+                    id SERIAL PRIMARY KEY,
+                    email TEXT NOT NULL,
+                    name TEXT NOT NULL
+                )"
+            ).await?;
+            // No need to specify return types - they're inferred automatically
+            Ok(())
+        }).await?;
+
+        // Execute tests with regular permissions
+        db.test(|mut conn| async move {
+            let rows = conn.execute("SELECT * FROM users").await?;
+            assert_eq!(rows.len(), 0);
+            // No need to specify return types - they're inferred automatically
+            Ok(())
+        }).await?;
+
+        // No need to specify return types - they're inferred automatically
+        Ok(())
+    })
+    .await;
+}
+```
+
+### Macro-based API
+
+The library also supports a macro-based API:
+
+```rust
+use db_testkit::with_test_db;
+
+#[tokio::test]
+async fn test_with_postgres() {
+    with_test_db!(|db| async move {
         let test_user = db.test_user.clone();
         
         // Setup database
@@ -51,16 +93,15 @@ async fn test_with_postgres() {
                     name TEXT NOT NULL
                 )"
             ).await?;
-            
-            // Insert test data
-            conn.execute(
-                "INSERT INTO users (email, name) VALUES ($1, $2)",
-                &[&test_user, "Test User"],
-            ).await?;
-            
             Ok(())
-        })
-        .await?;
+        }).await?;
+
+        // Execute tests
+        db.test(|mut conn| async move {
+            let rows = conn.execute("SELECT * FROM users").await?;
+            assert_eq!(rows.len(), 0);
+            Ok(())
+        }).await?;
 
         Ok(())
     })

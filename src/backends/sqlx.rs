@@ -4,7 +4,7 @@ use url::Url;
 
 use crate::{
     backend::{Connection, DatabaseBackend, DatabasePool},
-    error::{PoolError, Result},
+    error::{DbError, Result},
     pool::PoolConfig,
     DatabaseName,
 };
@@ -27,7 +27,7 @@ impl Connection for SqlxPostgresConnection {
         sqlx::query("DISCARD ALL")
             .execute(&self.pool)
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
         Ok(())
     }
 
@@ -42,7 +42,7 @@ impl Connection for SqlxPostgresConnection {
         // Execute each statement separately
         for stmt in statements {
             sqlx::query(stmt).execute(&self.pool).await.map_err(|e| {
-                PoolError::DatabaseError(format!("Failed to execute '{}': {}", stmt, e))
+                DbError::new(format!("Failed to execute '{}': {}", stmt, e))
             })?;
         }
         Ok(())
@@ -52,7 +52,7 @@ impl Connection for SqlxPostgresConnection {
         self.pool
             .begin()
             .await
-            .map_err(|e| PoolError::TransactionError(e.to_string()))
+            .map_err(|e| DbError::new(e.to_string()))
     }
 }
 
@@ -68,7 +68,7 @@ impl SqlxPostgresConnection {
         PgPoolOptions::new()
             .connect(self.connection_string.as_str())
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))
+            .map_err(|e| DbError::new(e.to_string()))
     }
 }
 
@@ -231,7 +231,7 @@ impl SqlxPostgresBackend {
     pub fn new(connection_string: &str) -> Result<Self> {
         let config = PgPoolOptions::new();
         let url = Url::parse(connection_string)
-            .map_err(|e| PoolError::ConfigError(format!("Invalid connection string: {}", e)))?;
+            .map_err(|e| DbError::new(format!("Invalid connection string: {}", e)))?;
 
         Ok(Self { config, url })
     }
@@ -247,7 +247,7 @@ impl SqlxPostgresBackend {
             .clone()
             .connect(self.url.as_str())
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))
+            .map_err(|e| DbError::new(e.to_string()))
     }
 }
 
@@ -263,7 +263,7 @@ impl DatabaseBackend for SqlxPostgresBackend {
         sqlx::query(&format!(r#"CREATE DATABASE "{}""#, name.as_str()))
             .execute(&pool)
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
 
         Ok(())
     }
@@ -278,7 +278,7 @@ impl DatabaseBackend for SqlxPostgresBackend {
         sqlx::query(&format!(r#"DROP DATABASE IF EXISTS "{}""#, name.as_str()))
             .execute(&pool)
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
 
         Ok(())
     }
@@ -289,7 +289,7 @@ impl DatabaseBackend for SqlxPostgresBackend {
             .max_connections(config.max_size as u32)
             .connect(&url)
             .await
-            .map_err(|e| PoolError::PoolCreationFailed(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
 
         Ok(SqlxPostgresPool {
             pool,
@@ -311,7 +311,7 @@ impl DatabaseBackend for SqlxPostgresBackend {
         ))
         .execute(&pool)
         .await
-        .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+        .map_err(|e| DbError::new(e.to_string()))?;
 
         Ok(())
     }
@@ -330,7 +330,7 @@ impl DatabaseBackend for SqlxPostgresBackend {
         ))
         .execute(&pool)
         .await
-        .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+        .map_err(|e| DbError::new(e.to_string()))?;
 
         Ok(())
     }
@@ -359,11 +359,16 @@ impl SqlxPostgresPool {
         let pool = PgPoolOptions::new()
             .max_connections(max_size as u32)
             .connect_lazy(url)
-            .map_err(|e| PoolError::PoolCreationFailed(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
         Ok(Self {
             pool,
             connection_string: url.to_string(),
         })
+    }
+
+    /// Get the underlying SQLx pool for direct SQLx operations
+    pub fn sqlx_pool(&self) -> &PgPool {
+        &self.pool
     }
 }
 
@@ -578,12 +583,12 @@ mod tests {
                 sqlx::query("CREATE TABLE test (id SERIAL PRIMARY KEY, value TEXT);")
                     .execute(&conn.pool)
                     .await
-                    .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+                    .map_err(|e| DbError::new(e.to_string()))?;
                 sqlx::query("INSERT INTO test (value) VALUES ($1)")
                     .bind("test_value")
                     .execute(&conn.pool)
                     .await
-                    .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+                    .map_err(|e| DbError::new(e.to_string()))?;
                 Ok(())
             })
             .await

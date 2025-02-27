@@ -52,9 +52,56 @@ reset-db:
 
 # List the test postgres databases
 postgres-list:
-    psql postgresql://postgres:postgres@postgres:5432/ -c "\l" | grep 'testkit' | awk '{print $1}'
+    psql postgresql://postgres:postgres@postgres:5432/ -c "\l" | grep 'testkit_' | awk '{print $1}'
 
 # Cleanup the test postgres databases
 postgres-clean:
-    psql postgresql://postgres:postgres@postgres:5432/ -c "\l" | grep 'testkit' | awk '{print $1}' | xargs -I '{}' psql postgresql://postgres:postgres@postgres:5432/ -c "DROP DATABASE \"{}\""
+    psql postgresql://postgres:postgres@postgres:5432/ -c "\l" | grep 'testkit_' | awk '{print $1}' | xargs -I '{}' psql postgresql://postgres:postgres@postgres:5432/ -c "DROP DATABASE \"{}\""
+
+# Test all features
+test-all:
+    @echo "Running tests with all features"
+    cargo test --all-features
+
+# Test default features only
+test-default:
+    @echo "Running tests with default features"
+    cargo test
+
+# Test PostgreSQL backend
+test-postgres:
+    @echo "Running tests with postgres feature"
+    cargo test --features "postgres"
+
+# Test SQLx PostgreSQL backend
+test-sqlx-postgres:
+    @echo "Running tests with sqlx-postgres and sqlx-backend features"
+    cargo test --features "sqlx-postgres sqlx-backend"
+
+# Test SQLite backend 
+test-sqlite:
+    @echo "Running tests with sqlite feature"
+    cargo test --features "sqlx-sqlite sqlx-backend"
+
+# Test MySQL backend
+test-mysql:
+    @echo "Running tests with mysql feature"
+    cargo test --features "mysql"
+
+# Test all backends individually and together
+test-backends: test-postgres test-sqlx-postgres test-sqlite test-mysql test-all
+    @echo "All backend tests completed"
+
+# Run SQLite examples
+run-sqlite-examples:
+    @echo "Running SQLite examples"
+    cargo run --features "sqlx-sqlite sqlx-backend" --example simple_sqlite_test
+    cargo run --features "sqlx-sqlite sqlx-backend" --example macro_sqlite_test
+
+# Run PostgreSQL examples
+run-postgres-examples:
+    @echo "Running PostgreSQL examples"
+    cargo run --features "postgres" --example simple_postgres_test
+    cargo run --features "postgres" --example macro_postgres_test
+    cargo run --features "sqlx-postgres sqlx-backend" --example sqlx_postgres_usage
 

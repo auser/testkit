@@ -1,4 +1,5 @@
-// use db_testkit::prelude::*;
+#[allow(unused_imports)]
+use db_testkit::prelude::*;
 
 #[tokio::test]
 async fn test_with_custom_connection() {

@@ -2,10 +2,9 @@ use std::{fmt::Display, sync::Arc};
 
 use crate::{
     backend::{Connection, DatabaseBackend, DatabasePool},
-    error::Result,
+    error::{DbError, Result},
     pool::PoolConfig,
     wrapper::ResourcePool,
-    PoolError,
 };
 use parking_lot::Mutex;
 use tokio::sync::Semaphore;
@@ -64,6 +63,16 @@ impl<B: DatabaseBackend + Clone + Send + 'static> TestDatabaseTemplate<B> {
         &self.name
     }
 
+    /// Returns a reference to the backend
+    pub fn backend(&self) -> &B {
+        &self.backend
+    }
+
+    /// Returns a reference to the config
+    pub fn config(&self) -> &PoolConfig {
+        &self.config
+    }
+
     /// Initialize the template database with a setup function
     pub async fn initialize<F, Fut>(&self, setup: F) -> Result<()>
     where
@@ -82,9 +91,9 @@ impl<B: DatabaseBackend + Clone + Send + 'static> TestDatabaseTemplate<B> {
             .semaphore
             .acquire()
             .await
-            .map_err(|e| PoolError::PoolCreationFailed(e.to_string()))?;
+            .map_err(|e| DbError::new(format!("Pool creation failed: {}", e)))?;
 
-        let name = DatabaseName::new("test");
+        let name = DatabaseName::new("testkit");
         self.backend
             .create_database_from_template(&name, &self.name)
             .await?;
@@ -93,7 +102,7 @@ impl<B: DatabaseBackend + Clone + Send + 'static> TestDatabaseTemplate<B> {
         self.replicas.lock().push(name.clone());
 
         // Generate test user ID
-        let test_user = format!("test_user_{}", Uuid::new_v4());
+        let test_user = format!("testkit_user_{}", Uuid::new_v4());
 
         Ok(TestDatabase {
             backend: self.backend.clone(),
@@ -139,14 +148,14 @@ impl<B: DatabaseBackend + 'static> TestDatabase<B> {
         // Generate unique name
         let db_name = DatabaseName::new("testkit");
 
-        // Create the database
+        // Create database
         backend.create_database(&db_name).await?;
 
-        // Create the pool
+        // Create connection pool for the database
         let pool = backend.create_pool(&db_name, &config).await?;
 
         // Generate test user ID
-        let test_user = format!("test_user_{}", Uuid::new_v4());
+        let test_user = format!("testkit_user_{}", Uuid::new_v4());
 
         Ok(Self {
             backend,
@@ -155,6 +164,16 @@ impl<B: DatabaseBackend + 'static> TestDatabase<B> {
             db_name,
             connection_pool: None,
         })
+    }
+
+    /// Returns a reference to the backend
+    pub fn backend(&self) -> &B {
+        &self.backend
+    }
+
+    /// Returns a reference to the database name
+    pub fn name(&self) -> &DatabaseName {
+        &self.db_name
     }
 
     /// Initialize a resource pool for connections
@@ -220,13 +239,31 @@ impl<B: DatabaseBackend + 'static> TestDatabase<B> {
     }
 
     /// Setup the database with a function
+    /// This provides a connection to perform setup operations like schema creation
     pub async fn setup<F, Fut>(&self, setup_fn: F) -> Result<()>
     where
         F: FnOnce(B::Connection) -> Fut + Send,
         Fut: std::future::Future<Output = Result<()>> + Send,
     {
-        let conn = self.connection().await?;
+        // When calling setup, we want to use a connection that has full permissions
+        // So we use the backend's connection pool which is typically connected as the admin user
+        let conn = self.pool.acquire().await?;
         setup_fn(conn).await
+    }
+
+    /// Execute a test function with a database connection
+    /// This is similar to setup but semantically different, meant for test operations
+    /// The connection uses the test user for better isolation
+    pub async fn test<F, Fut, T>(&self, test_fn: F) -> Result<T>
+    where
+        F: FnOnce(B::Connection) -> Fut + Send,
+        Fut: std::future::Future<Output = Result<T>> + Send,
+        T: Send + 'static,
+    {
+        // For test operations, we also use the pool connection
+        // but semantically this is different from setup
+        let conn = self.pool.acquire().await?;
+        test_fn(conn).await
     }
 }
 
@@ -244,13 +281,14 @@ where
 }
 
 pub fn sync_drop_database(database_uri: &str) -> Result<()> {
-    let parsed = Url::parse(database_uri).map_err(PoolError::UrlParseError)?;
+    let parsed =
+        Url::parse(database_uri).map_err(|e| DbError::new(format!("Url parse error: {}", e)))?;
     let database_name = parsed.path().trim_start_matches('/');
 
     #[cfg(any(feature = "postgres", feature = "sqlx-postgres"))]
     drop_postgres_database(&parsed, database_name)?;
 
-    #[cfg(feature = "sqlite")]
+    #[cfg(any(feature = "sqlite", feature = "sqlx-sqlite"))]
     drop_sqlite_database(&parsed, database_name)?;
 
     #[cfg(feature = "mysql")]
@@ -259,7 +297,7 @@ pub fn sync_drop_database(database_uri: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "postgres")]
+#[cfg(any(feature = "postgres", feature = "sqlx-postgres"))]
 #[allow(dead_code)]
 fn drop_postgres_database(parsed: &Url, database_name: &str) -> Result<()> {
     let test_user = parsed.username();
@@ -280,42 +318,45 @@ fn drop_postgres_database(parsed: &Url, database_name: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "postgres")]
+#[cfg(any(feature = "postgres", feature = "sqlx-postgres"))]
 #[allow(dead_code)]
 fn terminate_connections(database_host: &str, database_name: &str) -> Result<()> {
-    let output = Command::new("psql")
+    let output = std::process::Command::new("psql")
         .arg(database_host)
         .arg("-c")
         .arg(format!("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{database_name}' AND pid <> pg_backend_pid();"))
-        .output().map_err(PoolError::IoError)?;
+        .output()
+        .map_err(|e| DbError::new(format!("Io error: {}", e)))?;
 
     if !output.status.success() {
-        return Err(PoolError::DatabaseDropFailed(
-            String::from_utf8_lossy(&output.stderr).to_string(),
-        ));
+        return Err(DbError::new(format!(
+            "Database drop failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )));
     }
     Ok(())
 }
 
-#[cfg(feature = "postgres")]
+#[cfg(any(feature = "postgres", feature = "sqlx-postgres"))]
 #[allow(dead_code)]
 fn drop_database_command(database_host: &str, database_name: &str) -> Result<()> {
-    let output = Command::new("psql")
+    let output = std::process::Command::new("psql")
         .arg(database_host)
         .arg("-c")
         .arg(format!("DROP DATABASE \"{database_name}\";"))
         .output()
-        .map_err(PoolError::IoError)?;
+        .map_err(|e| DbError::new(format!("Io error: {}", e)))?;
 
     if !output.status.success() {
-        return Err(PoolError::DatabaseDropFailed(
-            String::from_utf8_lossy(&output.stderr).to_string(),
-        ));
+        return Err(DbError::new(format!(
+            "Database drop failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )));
     }
     Ok(())
 }
 
-#[cfg(feature = "postgres")]
+#[cfg(any(feature = "postgres", feature = "sqlx-postgres"))]
 #[allow(dead_code)]
 fn drop_role_command(database_host: &str, role_name: &str) -> Result<()> {
     // Skip dropping the role if it's postgres (superuser) or postgres_user
@@ -324,12 +365,12 @@ fn drop_role_command(database_host: &str, role_name: &str) -> Result<()> {
         return Ok(());
     }
 
-    let output = Command::new("psql")
+    let output = std::process::Command::new("psql")
         .arg(database_host)
         .arg("-c")
         .arg(format!("DROP ROLE IF EXISTS \"{role_name}\";"))
         .output()
-        .map_err(PoolError::IoError)?;
+        .map_err(|e| DbError::new(format!("Io error: {}", e)))?;
 
     if !output.status.success() {
         // If the error is about current user, just log and continue
@@ -338,21 +379,34 @@ fn drop_role_command(database_host: &str, role_name: &str) -> Result<()> {
             return Ok(());
         }
 
-        return Err(PoolError::DatabaseDropFailed(error));
+        return Err(DbError::new(format!("Database drop failed: {}", error)));
     }
     Ok(())
 }
 
-#[cfg(feature = "sqlite")]
+#[cfg(any(feature = "sqlite", feature = "sqlx-sqlite"))]
 #[allow(unused)]
 fn drop_sqlite_database(parsed: &Url, database_name: &str) -> Result<()> {
     // For SQLite, the database is a file on disk
-    // The path should be in the format sqlite:///path/to/db.sqlite or file:///path/to/db.sqlite
+    // The path could be in several formats:
+    // - sqlite:///path/to/db.sqlite
+    // - sqlite:/path/to/db.sqlite
+    // - file:///path/to/db.sqlite
 
     let path = if parsed.scheme() == "sqlite" {
         // Remove the leading '/' from the path for sqlite:// URLs
         let path_str = parsed.path().trim_start_matches('/');
-        std::path::PathBuf::from(path_str)
+        // For SQLx sqlite implementation, the path might be directly the database name
+        if !path_str.contains('/') && !path_str.contains('\\') {
+            // This is likely just the database name, append .db extension if not present
+            let mut path = std::path::PathBuf::from(path_str);
+            if !path.extension().map_or(false, |ext| ext == "db") {
+                path.set_extension("db");
+            }
+            path
+        } else {
+            std::path::PathBuf::from(path_str)
+        }
     } else {
         // For file:// URLs, use the path directly
         std::path::PathBuf::from(parsed.path())
@@ -361,11 +415,25 @@ fn drop_sqlite_database(parsed: &Url, database_name: &str) -> Result<()> {
     // Check if the file exists before attempting to delete it
     if path.exists() {
         tracing::debug!("Removing SQLite database file: {:?}", path);
-        std::fs::remove_file(&path).map_err(|e| {
-            PoolError::DatabaseDropFailed(format!("Failed to remove SQLite database file: {}", e))
-        })?;
+        std::fs::remove_file(&path)
+            .map_err(|e| DbError::new(format!("Failed to remove SQLite database file: {}", e)))?;
     } else {
         tracing::debug!("SQLite database file does not exist: {:?}", path);
+
+        // For sqlx-sqlite, also try with .db extension
+        let mut db_path = path.clone();
+        if db_path.extension().is_none() {
+            db_path.set_extension("db");
+            if db_path.exists() {
+                tracing::debug!(
+                    "Removing SQLite database file with .db extension: {:?}",
+                    db_path
+                );
+                std::fs::remove_file(&db_path).map_err(|e| {
+                    DbError::new(format!("Failed to remove SQLite database file: {}", e))
+                })?;
+            }
+        }
     }
 
     Ok(())
@@ -405,12 +473,13 @@ fn terminate_mysql_connections(database_host: &str, database_name: &str) -> Resu
             database_name
         ))
         .output()
-        .map_err(PoolError::IoError)?;
+        .map_err(|e| DbError::IoError(e.to_string()))?;
 
     if !output.status.success() {
-        return Err(PoolError::DatabaseDropFailed(
-            String::from_utf8_lossy(&output.stderr).to_string(),
-        ));
+        return Err(DbError::new(format!(
+            "Database drop failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )));
     }
     Ok(())
 }
@@ -422,12 +491,13 @@ fn drop_mysql_database_command(database_host: &str, database_name: &str) -> Resu
         .arg("-e")
         .arg(format!("DROP DATABASE IF EXISTS `{}`", database_name))
         .output()
-        .map_err(PoolError::IoError)?;
+        .map_err(|e| DbError::IoError(e.to_string()))?;
 
     if !output.status.success() {
-        return Err(PoolError::DatabaseDropFailed(
-            String::from_utf8_lossy(&output.stderr).to_string(),
-        ));
+        return Err(DbError::new(format!(
+            "Database drop failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )));
     }
     Ok(())
 }

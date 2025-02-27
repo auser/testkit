@@ -1,46 +1,46 @@
 #[cfg(feature = "sqlx-sqlite")]
-use db_testkit::error::Result;
-#[cfg(feature = "sqlx-sqlite")]
 use db_testkit::prelude::*;
 
 #[cfg(feature = "sqlx-sqlite")]
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
     // Setup logging
     std::env::set_var("RUST_LOG", "sqlx=debug");
     let _ = tracing_subscriber::fmt::try_init();
 
     println!("Testing the with_test_db! macro with SQLite...");
 
+    // Assign to underscore to avoid unused Future warning
     with_test_db!(|db| async move {
         println!("Created template database: {}", db.name());
 
-        // Create a test database from the template
-        let test_db = db.create_test_database().await.unwrap();
-        println!("Created test database: {}", test_db.db_name);
+        // Use the db directly - it's already a TestDatabase instance
+        println!("Using test database: {}", db.name());
 
         // Get a connection
-        let mut conn = test_db.pool.acquire().await.unwrap();
+        let mut conn = db.connection().await.unwrap();
 
-        // Create a table
+        // Create a table - in SQLite, INTEGER PRIMARY KEY is alias for rowid which auto-increments
         conn.execute("CREATE TABLE test_items (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
             .await
             .unwrap();
 
         println!("Created table");
 
-        // Insert some data
-        conn.execute("INSERT INTO test_items (name) VALUES ('Test Item 1')")
+        // Insert some data with explicit ID
+        conn.execute("INSERT INTO test_items (id, name) VALUES (1, 'Test Item 1')")
             .await
             .unwrap();
 
         println!("Inserted data");
 
-        // Return successfully
-        Ok(()) as Result<()>
-    });
+        // Just return Ok(()) and let the macro handle type inference
+        Ok(())
+    })
+    .await?;
 
     println!("SQLite macro test completed!");
+    Ok(())
 }
 
 #[cfg(not(feature = "sqlx-sqlite"))]

@@ -4,7 +4,7 @@ use async_trait::async_trait;
 
 use crate::{
     backend::Connection,
-    error::{PoolError, Result},
+    error::{DbError, Result},
 };
 
 #[derive(Debug, Clone)]
@@ -19,26 +19,24 @@ impl SqlSource {
         match self {
             SqlSource::Directory(path) => {
                 let mut scripts = Vec::new();
-                for entry in fs::read_dir(path).map_err(|e| {
-                    PoolError::MigrationError(format!("Failed to read directory: {}", e))
-                })? {
+                for entry in fs::read_dir(path)
+                    .map_err(|e| DbError::new(format!("Failed to read directory: {}", e)))?
+                {
                     let entry = entry.map_err(|e| {
-                        PoolError::MigrationError(format!("Failed to read directory entry: {}", e))
+                        DbError::new(format!("Failed to read directory entry: {}", e))
                     })?;
                     let path = entry.path();
                     if path.is_file() {
-                        let sql = fs::read_to_string(&path).map_err(|e| {
-                            PoolError::MigrationError(format!("Failed to read SQL file: {}", e))
-                        })?;
+                        let sql = fs::read_to_string(&path)
+                            .map_err(|e| DbError::new(format!("Failed to read SQL file: {}", e)))?;
                         scripts.push(sql);
                     }
                 }
                 Ok(scripts)
             }
             SqlSource::File(path) => {
-                let sql = fs::read_to_string(path).map_err(|e| {
-                    PoolError::MigrationError(format!("Failed to read SQL file: {}", e))
-                })?;
+                let sql = fs::read_to_string(path)
+                    .map_err(|e| DbError::new(format!("Failed to read SQL file: {}", e)))?;
                 Ok(vec![sql])
             }
             SqlSource::Embedded(scripts) => Ok(scripts.iter().map(|s| s.to_string()).collect()),

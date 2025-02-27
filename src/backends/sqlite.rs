@@ -5,7 +5,7 @@ use sqlx::{Pool, Sqlite, Transaction};
 
 use crate::{
     backend::{Connection, DatabaseBackend, DatabasePool},
-    error::{PoolError, Result},
+    error::{DbError, Result},
     pool::PoolConfig,
     test_db::DatabaseName,
 };
@@ -31,7 +31,7 @@ impl Connection for SqliteConnection {
         sqlx::query(sql)
             .execute(&self.pool)
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
         Ok(())
     }
 
@@ -39,7 +39,7 @@ impl Connection for SqliteConnection {
         self.pool
             .begin()
             .await
-            .map_err(|e| PoolError::TransactionError(e.to_string()))
+            .map_err(|e| DbError::new(e.to_string()))
     }
 }
 
@@ -71,7 +71,7 @@ impl DatabaseBackend for SqliteBackend {
             .max_connections(5u32)
             .connect("sqlite::memory:")
             .await
-            .map_err(|e| PoolError::PoolCreationFailed(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
 
         Ok(SqliteDbPool {
             pool,
@@ -85,19 +85,19 @@ impl DatabaseBackend for SqliteBackend {
         // Ensure parent directory exists
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
-                PoolError::DatabaseError(format!("Failed to create directory: {}", e))
+                DbError::new(format!("Failed to create directory: {}", e))
             })?;
         }
 
         if db_path.exists() {
             std::fs::remove_file(&db_path).map_err(|e| {
-                PoolError::DatabaseError(format!("Failed to remove database: {}", e))
+                DbError::new(format!("Failed to remove database: {}", e))
             })?;
         }
 
         // Create empty database file
         std::fs::File::create(&db_path)
-            .map_err(|e| PoolError::DatabaseError(format!("Failed to create database: {}", e)))?;
+            .map_err(|e| DbError::new(format!("Failed to create database: {}", e)))?;
         Ok(())
     }
 
@@ -110,7 +110,7 @@ impl DatabaseBackend for SqliteBackend {
         let db_path = self.get_db_path(name);
 
         std::fs::copy(&template_path, &db_path)
-            .map_err(|e| PoolError::DatabaseError(format!("Failed to copy database: {}", e)))?;
+            .map_err(|e| DbError::new(format!("Failed to copy database: {}", e)))?;
         Ok(())
     }
 
@@ -118,7 +118,7 @@ impl DatabaseBackend for SqliteBackend {
         let db_path = self.get_db_path(name);
         if db_path.exists() {
             std::fs::remove_file(&db_path).map_err(|e| {
-                PoolError::DatabaseError(format!("Failed to remove database: {}", e))
+                DbError::new(format!("Failed to remove database: {}", e))
             })?;
         }
         Ok(())
@@ -131,7 +131,7 @@ impl DatabaseBackend for SqliteBackend {
             .max_connections(config.max_size as u32)
             .connect(&url)
             .await
-            .map_err(|e| PoolError::PoolCreationFailed(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
 
         Ok(SqliteDbPool { pool, url })
     }

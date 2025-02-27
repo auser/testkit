@@ -3,7 +3,7 @@ use mysql_async::{Conn, Opts, Pool as MyPool};
 
 use crate::{
     backend::{Connection, DatabaseBackend, DatabasePool},
-    error::{PoolError, Result},
+    error::{DbError, Result},
     pool::PoolConfig,
     test_db::DatabaseName,
 };
@@ -25,7 +25,7 @@ impl Connection for MySqlConnection {
         self.conn
             .reset()
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
         Ok(())
     }
 
@@ -33,7 +33,7 @@ impl Connection for MySqlConnection {
         self.conn
             .query_drop(sql)
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
         Ok(())
     }
 
@@ -50,7 +50,7 @@ pub struct MySqlBackend {
 impl MySqlBackend {
     pub fn new(connection_string: &str) -> Result<Self> {
         let opts = Opts::from_url(connection_string)
-            .map_err(|e| PoolError::ConfigError(format!("Invalid connection string: {}", e)))?;
+            .map_err(|e| DbError::new(format!("Invalid connection string: {}", e)))?;
 
         Ok(Self { opts })
     }
@@ -72,14 +72,14 @@ impl DatabaseBackend for MySqlBackend {
         let mut conn = pool
             .get_conn()
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
 
         conn.query_drop(&format!(
             "CREATE DATABASE IF NOT EXISTS `{}`",
             name.as_str()
         ))
         .await
-        .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+        .map_err(|e| DbError::new(e.to_string()))?;
 
         Ok(())
     }
@@ -92,11 +92,11 @@ impl DatabaseBackend for MySqlBackend {
         let mut conn = pool
             .get_conn()
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
 
         conn.query_drop(&format!("DROP DATABASE IF EXISTS `{}`", name.as_str()))
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
 
         Ok(())
     }
@@ -114,7 +114,7 @@ impl DatabaseBackend for MySqlBackend {
         let mut conn = pool
             .get_conn()
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
 
         conn.query_drop(&format!(
             r#"
@@ -130,7 +130,7 @@ impl DatabaseBackend for MySqlBackend {
             name.as_str()
         ))
         .await
-        .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+        .map_err(|e| DbError::new(e.to_string()))?;
 
         Ok(())
     }
@@ -149,7 +149,7 @@ impl DatabaseBackend for MySqlBackend {
         let mut conn = pool
             .get_conn()
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
 
         // Get all tables
         let tables: Vec<String> = conn
@@ -165,7 +165,7 @@ impl DatabaseBackend for MySqlBackend {
                 |table_name| table_name,
             )
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
 
         // For each table, copy structure and data
         for table in tables {
@@ -175,7 +175,7 @@ impl DatabaseBackend for MySqlBackend {
                 name, table, template, table
             ))
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
 
             // Copy data
             conn.query_drop(&format!(
@@ -183,7 +183,7 @@ impl DatabaseBackend for MySqlBackend {
                 name, table, template, table
             ))
             .await
-            .map_err(|e| PoolError::DatabaseError(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
         }
 
         Ok(())
@@ -215,7 +215,7 @@ impl DatabasePool for MySqlPool {
             .pool
             .get_conn()
             .await
-            .map_err(|e| PoolError::ConnectionAcquisitionFailed(e.to_string()))?;
+            .map_err(|e| DbError::new(e.to_string()))?;
 
         Ok(MySqlConnection {
             conn,
