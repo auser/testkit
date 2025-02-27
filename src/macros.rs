@@ -56,6 +56,9 @@ macro_rules! with_test_db {
     // This variant auto-awaits the future and returns a Result that can be used with ?
     ($url:expr, |$db:ident| $test:expr) => {{
         async {
+            // Import DatabaseBackend trait for backend methods
+            use $crate::backend::DatabaseBackend;
+
             // Create backend for the URL based on feature
             #[cfg(all(feature = "postgres", not(feature = "sqlx-postgres")))]
             #[allow(unused_variables)]
@@ -182,6 +185,9 @@ macro_rules! with_test_db {
     // Version with setup and test functions using async move blocks
     ($url:expr, |$setup_param:ident| $setup_block:expr, |$test_param:ident| $test_block:expr) => {
         async {
+            // Import DatabaseBackend trait for backend methods
+            use $crate::backend::DatabaseBackend;
+
             // Create backend for the URL based on feature
             #[cfg(all(feature = "postgres", not(feature = "sqlx-postgres")))]
             #[allow(unused_variables)]
@@ -295,6 +301,9 @@ macro_rules! with_test_db {
     // Version with URL and type annotation
     ($url:expr, |$db:ident: $ty:ty| $test:expr) => {{
         async {
+            // Import DatabaseBackend trait for backend methods
+            use $crate::backend::DatabaseBackend;
+
             // Create backend for the URL based on feature
             #[cfg(all(feature = "postgres", not(feature = "sqlx-postgres")))]
             #[allow(unused_variables)]
@@ -408,6 +417,9 @@ macro_rules! with_test_db {
     // Version with setup and test functions using async move blocks with type annotations
     ($url:expr, |$setup_param:ident| $setup_block:expr, |$test_param:ident: $ty:ty| $test_block:expr) => {
         async {
+            // Import DatabaseBackend trait for backend methods
+            use $crate::backend::DatabaseBackend;
+
             // Create backend for the URL based on feature
             #[cfg(all(feature = "postgres", not(feature = "sqlx-postgres")))]
             #[allow(unused_variables)]
@@ -644,8 +656,8 @@ mod tests {
         with_test_db!(
             "postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable",
             |db| async move {
-                // Get a TestDatabase from the template
-                let test_db = db.create_test_database().await.unwrap();
+                // db is already a TestDatabase instance, not a template
+                let test_db = db;
 
                 #[cfg(feature = "postgres")]
                 {
@@ -663,7 +675,7 @@ mod tests {
                 #[cfg(all(feature = "sqlx-backend", not(feature = "postgres")))]
                 {
                     // For SqlxPostgresBackend, use DatabasePool trait to acquire connection
-                    use crate::backend::DatabasePool;
+                    use crate::backend::{DatabaseBackend, DatabasePool};
                     let mut conn = test_db.pool.acquire().await.unwrap();
 
                     let res = sqlx::query!(
@@ -676,7 +688,9 @@ mod tests {
 
                 Ok(()) as crate::error::Result<()>
             }
-        );
+        )
+        .await
+        .unwrap();
     }
 
     // #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
