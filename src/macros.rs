@@ -1,7 +1,7 @@
 #[allow(unused)]
 use crate::{
     backend::{Connection, DatabaseBackend, DatabasePool},
-    error::Result,
+    error::{PoolError, Result},
     pool::PoolConfig,
     test_db::TestDatabaseTemplate,
 };
@@ -115,12 +115,10 @@ macro_rules! with_test_db {
             // Run the test with template
             let $test_param = template;
 
-            // Run the test - result is mapped to () for simplicity
-            match $test_block.await {
-                Ok(_) => (),
-                Err(e) => eprintln!("Test failed: {:?}", e),
-            }
+            // Simply execute the test and ignore the result
+            let _ = $test_block.await;
         }
+        .await
     };
 
     // Remaining (less commonly used) variants with explicit type annotations
@@ -144,11 +142,8 @@ macro_rules! with_test_db {
                 .await
                 .expect("Failed to create test database");
 
-            // Run the test - result is mapped to () for simplicity
-            match $test.await {
-                Ok(_) => (),
-                Err(e) => eprintln!("Test failed: {:?}", e),
-            }
+            // Simply execute the test and ignore the result
+            let _ = $test.await;
         }
         .await
     };
@@ -192,11 +187,8 @@ macro_rules! with_test_db {
             // Run the test with template - ensure type compatibility
             let $test_param: $ty = template;
 
-            // Run the test - result is mapped to () for simplicity
-            match $test_block.await {
-                Ok(_) => (),
-                Err(e) => eprintln!("Test failed: {:?}", e),
-            }
+            // Simply execute the test and ignore the result
+            let _ = $test_block.await;
         }
         .await
     };
@@ -285,7 +277,6 @@ macro_rules! with_sqlite_test_db {
 
 #[cfg(test)]
 mod tests {
-    use crate::error::Result;
 
     #[cfg(any(
         feature = "sqlx-mysql",
@@ -355,7 +346,7 @@ mod tests {
                     println!("Created table with SQLx backend: {:?}", res);
                 }
 
-                Ok(()) as Result<()>
+                Ok(()) as crate::error::Result<()>
             }
         );
     }

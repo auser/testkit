@@ -50,11 +50,11 @@ run-migrations:
 reset-db:
     sqlx database reset
 
-# List the test databases
-list-test-databases:
+# List the test postgres databases
+postgres-list:
     psql postgresql://postgres:postgres@postgres:5432/ -c "\l" | grep 'testkit' | awk '{print $1}'
 
-# Cleanup the test databases
-clean-test-databases:
+# Cleanup the test postgres databases
+postgres-clean:
     psql postgresql://postgres:postgres@postgres:5432/ -c "\l" | grep 'testkit' | awk '{print $1}' | xargs -I '{}' psql postgresql://postgres:postgres@postgres:5432/ -c "DROP DATABASE \"{}\""
 
