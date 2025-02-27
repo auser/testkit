@@ -1,6 +1,6 @@
 // Re-exports of the most commonly used items for convenience
 pub use crate::backend::{Connection, DatabaseBackend, DatabasePool};
-pub use crate::error::{err, ok, PoolError, Result};
+pub use crate::error::{err, map_db_err, ok, to_result, PoolError, Result};
 pub use crate::migrations::{RunSql, SqlSource};
 pub use crate::pool::PoolConfig;
 pub use crate::test_db::{DatabaseName, TestDatabase, TestDatabaseTemplate};

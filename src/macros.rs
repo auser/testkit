@@ -66,12 +66,12 @@ macro_rules! with_test_db {
                 .await
                 .expect("Failed to create test database");
 
-            // Run the test - result is mapped to () for simplicity
-            match $test.await {
-                Ok(_) => (),
-                Err(e) => eprintln!("Test failed: {:?}", e),
-            }
+            // Simply execute the test and ignore the result
+            // This allows the user to use any Result type they want
+            // with the ? operator, without forcing our error type
+            let _ = $test.await;
         }
+        .await
     };
 
     // No URL provided, use default and no type annotation
@@ -150,6 +150,7 @@ macro_rules! with_test_db {
                 Err(e) => eprintln!("Test failed: {:?}", e),
             }
         }
+        .await
     };
 
     // Version with type annotation
@@ -197,6 +198,7 @@ macro_rules! with_test_db {
                 Err(e) => eprintln!("Test failed: {:?}", e),
             }
         }
+        .await
     };
 }
 

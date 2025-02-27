@@ -8,21 +8,21 @@ async fn main() -> std::result::Result<(), db_testkit::PoolError> {
 
     println!("Running the example with SQLx PostgreSQL backend...");
 
-    // Use the macro without explicit result capture or type annotations
+    // Use the macro without explicit type annotations
     with_test_db!(
         "postgres://postgres:postgres@postgres:5432/postgres",
         |db| async {
             println!("Created test database: {}", db.name());
 
             // Create a test database from the template
-            let test_db = db.create_test_database().await?;
+            let test_db = db.create_test_database().await.unwrap();
             println!("Created test database");
 
             // Create a table
             sqlx::query("CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT, email TEXT)")
                 .execute(&test_db.pool)
                 .await
-                .map_err(|e| db_testkit::PoolError::DatabaseError(e.to_string()))?;
+                .unwrap();
 
             println!("Created table");
 
@@ -30,7 +30,7 @@ async fn main() -> std::result::Result<(), db_testkit::PoolError> {
             sqlx::query("INSERT INTO users (name, email) VALUES ('John Doe', 'john@example.com')")
                 .execute(&test_db.pool)
                 .await
-                .map_err(|e| db_testkit::PoolError::DatabaseError(e.to_string()))?;
+                .unwrap();
 
             println!("Inserted data");
 
@@ -38,7 +38,7 @@ async fn main() -> std::result::Result<(), db_testkit::PoolError> {
             let row = sqlx::query("SELECT name, email FROM users WHERE name = 'John Doe'")
                 .fetch_one(&test_db.pool)
                 .await
-                .map_err(|e| db_testkit::PoolError::DatabaseError(e.to_string()))?;
+                .unwrap();
 
             println!(
                 "Name: {}, Email: {}",
@@ -46,11 +46,11 @@ async fn main() -> std::result::Result<(), db_testkit::PoolError> {
                 row.get::<String, _>("email")
             );
 
-            // Use the helper function from the prelude
-            ok(())
+            // Note: We still need to specify the Result type for the return value
+            // But we don't need to specify any TestDatabaseTemplate types
+            Ok(()) as std::result::Result<(), ()>
         }
-    )
-    .await;
+    );
 
     Ok(())
 }

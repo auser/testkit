@@ -141,7 +141,7 @@ pub async fn example_with_pg_and_url() {
 #[cfg(test)]
 #[cfg(all(feature = "sqlx-backend", not(feature = "postgres")))]
 pub async fn example_with_sqlx_postgres() {
-    let _ = with_test_db!(
+    with_test_db!(
         "postgres://postgres:postgres@postgres:5432/postgres",
         |_conn| async move {
             // Setup code goes here

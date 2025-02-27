@@ -63,6 +63,13 @@ pub enum PoolError {
     UrlParseError(url::ParseError),
 }
 
+// Implement Default for PoolError
+impl Default for PoolError {
+    fn default() -> Self {
+        PoolError::DatabaseError("Unknown error".into())
+    }
+}
+
 #[cfg(any(
     feature = "sqlx-postgres",
     feature = "sqlx-mysql",
@@ -85,4 +92,16 @@ pub fn ok<T>(value: T) -> Result<T> {
 /// Type helper for creating a standard error result with PoolError
 pub fn err<T>(message: impl Into<String>) -> Result<T> {
     Err(PoolError::DatabaseError(message.into()))
+}
+
+// Helper function to automatically convert your values to a Result<T, PoolError>
+// This makes the API more ergonomic for users
+pub fn to_result<T, E: std::fmt::Display>(result: std::result::Result<T, E>) -> Result<T> {
+    result.map_err(|e| PoolError::DatabaseError(e.to_string()))
+}
+
+// Add more specific conversion helpers
+// These can be used for common database operations
+pub fn map_db_err<E: std::fmt::Display>(e: E) -> PoolError {
+    PoolError::DatabaseError(e.to_string())
 }
