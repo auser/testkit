@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use mysql_async::{Conn, Opts, Pool as MyPool};
+use mysql_async::{prelude::Queryable, Conn, Opts, Pool as MyPool};
 
 use crate::{
     backend::{Connection, DatabaseBackend, DatabasePool},
@@ -15,7 +15,7 @@ pub struct MySqlConnection {
 
 #[async_trait]
 impl Connection for MySqlConnection {
-    type Transaction<'conn> = Transaction<'conn, Postgres>;
+    type Transaction<'conn> = mysql_async::Transaction<'conn>;
 
     async fn is_valid(&self) -> bool {
         self.conn.ping().await.is_ok()
@@ -35,6 +35,13 @@ impl Connection for MySqlConnection {
             .await
             .map_err(|e| DbError::new(e.to_string()))?;
         Ok(())
+    }
+
+    async fn begin(&mut self) -> Result<Self::Transaction<'_>, DbError> {
+        self.conn
+            .start_transaction(mysql_async::TxOpts::default())
+            .await
+            .map_err(|e| DbError::new(e.to_string()))
     }
 
     fn connection_string(&self) -> String {

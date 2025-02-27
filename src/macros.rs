@@ -48,7 +48,8 @@ use crate::{backends::sqlite::SqliteBackend, env::get_sqlite_url};
 #[cfg(any(
     feature = "postgres",
     feature = "sqlx-postgres",
-    feature = "sqlx-sqlite"
+    feature = "sqlx-sqlite",
+    feature = "mysql"
 ))]
 #[macro_export]
 macro_rules! with_test_db {
@@ -60,7 +61,7 @@ macro_rules! with_test_db {
             use $crate::backend::DatabaseBackend;
 
             // Create backend for the URL based on feature
-            #[cfg(all(feature = "postgres", not(feature = "sqlx-postgres")))]
+            #[cfg(all(feature = "postgres", not(feature = "sqlx-postgres"), not(feature = "mysql")))]
             #[allow(unused_variables)]
             let backend = $crate::backends::postgres::PostgresBackend::new($url)
                 .await
@@ -71,10 +72,16 @@ macro_rules! with_test_db {
             let backend = $crate::backends::sqlx::SqlxPostgresBackend::new($url)
                 .expect("Failed to create database backend");
 
+            #[cfg(feature = "mysql")]
+            #[allow(unused_variables)]
+            let backend = $crate::backends::mysql::MySqlBackend::new($url)
+                .expect("Failed to create database backend");
+
             #[cfg(all(
                 feature = "sqlx-sqlite",
                 not(feature = "postgres"),
-                not(feature = "sqlx-postgres")
+                not(feature = "sqlx-postgres"),
+                not(feature = "mysql")
             ))]
             #[allow(unused_variables)]
             let backend = $crate::backends::sqlite::SqliteBackend::new($url)
@@ -153,7 +160,23 @@ macro_rules! with_test_db {
         // We use compile-time feature detection to determine which version to use
         // but execute the expression only once
         {
-            #[cfg(any(feature = "postgres", feature = "sqlx-postgres"))]
+            #[cfg(feature = "postgres")]
+            {
+                $crate::with_test_db!(
+                    "postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable",
+                    |$db| $test
+                )
+            }
+
+            #[cfg(all(feature = "mysql", not(feature = "postgres")))]
+            {
+                $crate::with_test_db!(
+                    "mysql://root:password@mysql:3306/",
+                    |$db| $test
+                )
+            }
+
+            #[cfg(all(feature = "sqlx-postgres", not(feature = "postgres"), not(feature = "mysql")))]
             {
                 $crate::with_test_db!(
                     "postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable",
@@ -164,7 +187,8 @@ macro_rules! with_test_db {
             #[cfg(all(
                 feature = "sqlx-sqlite",
                 not(feature = "postgres"),
-                not(feature = "sqlx-postgres")
+                not(feature = "sqlx-postgres"),
+                not(feature = "mysql")
             ))]
             {
                 $crate::with_test_db!("sqlite_testdb", |$db| $test)
@@ -174,7 +198,8 @@ macro_rules! with_test_db {
             #[cfg(not(any(
                 feature = "postgres",
                 feature = "sqlx-postgres",
-                feature = "sqlx-sqlite"
+                feature = "sqlx-sqlite",
+                feature = "mysql"
             )))]
             {
                 compile_error!("No database backend feature enabled")
@@ -189,7 +214,7 @@ macro_rules! with_test_db {
             use $crate::backend::DatabaseBackend;
 
             // Create backend for the URL based on feature
-            #[cfg(all(feature = "postgres", not(feature = "sqlx-postgres")))]
+            #[cfg(all(feature = "postgres", not(feature = "sqlx-postgres"), not(feature = "mysql")))]
             #[allow(unused_variables)]
             let backend = $crate::backends::postgres::PostgresBackend::new($url)
                 .await
@@ -200,10 +225,16 @@ macro_rules! with_test_db {
             let backend = $crate::backends::sqlx::SqlxPostgresBackend::new($url)
                 .expect("Failed to create database backend");
 
+            #[cfg(feature = "mysql")]
+            #[allow(unused_variables)]
+            let backend = $crate::backends::mysql::MySqlBackend::new($url)
+                .expect("Failed to create database backend");
+
             #[cfg(all(
                 feature = "sqlx-sqlite",
                 not(feature = "postgres"),
-                not(feature = "sqlx-postgres")
+                not(feature = "sqlx-postgres"),
+                not(feature = "mysql")
             ))]
             #[allow(unused_variables)]
             let backend = $crate::backends::sqlite::SqliteBackend::new($url)
@@ -305,7 +336,7 @@ macro_rules! with_test_db {
             use $crate::backend::DatabaseBackend;
 
             // Create backend for the URL based on feature
-            #[cfg(all(feature = "postgres", not(feature = "sqlx-postgres")))]
+            #[cfg(all(feature = "postgres", not(feature = "sqlx-postgres"), not(feature = "mysql")))]
             #[allow(unused_variables)]
             let backend = $crate::backends::postgres::PostgresBackend::new($url)
                 .await
@@ -316,10 +347,16 @@ macro_rules! with_test_db {
             let backend = $crate::backends::sqlx::SqlxPostgresBackend::new($url)
                 .expect("Failed to create database backend");
 
+            #[cfg(feature = "mysql")]
+            #[allow(unused_variables)]
+            let backend = $crate::backends::mysql::MySqlBackend::new($url)
+                .expect("Failed to create database backend");
+
             #[cfg(all(
                 feature = "sqlx-sqlite",
                 not(feature = "postgres"),
-                not(feature = "sqlx-postgres")
+                not(feature = "sqlx-postgres"),
+                not(feature = "mysql")
             ))]
             #[allow(unused_variables)]
             let backend = $crate::backends::sqlite::SqliteBackend::new($url)
@@ -386,7 +423,23 @@ macro_rules! with_test_db {
     (|$db:ident: $ty:ty| $test:expr) => {
         // We use compile-time feature detection to determine which version to use
         {
-            #[cfg(any(feature = "postgres", feature = "sqlx-postgres"))]
+            #[cfg(feature = "postgres")]
+            {
+                $crate::with_test_db!(
+                    "postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable",
+                    |$db: $ty| $test
+                )
+            }
+
+            #[cfg(all(feature = "mysql", not(feature = "postgres")))]
+            {
+                $crate::with_test_db!(
+                    "mysql://root:password@mysql:3306/",
+                    |$db: $ty| $test
+                )
+            }
+
+            #[cfg(all(feature = "sqlx-postgres", not(feature = "postgres"), not(feature = "mysql")))]
             {
                 $crate::with_test_db!(
                     "postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable",
@@ -397,7 +450,8 @@ macro_rules! with_test_db {
             #[cfg(all(
                 feature = "sqlx-sqlite",
                 not(feature = "postgres"),
-                not(feature = "sqlx-postgres")
+                not(feature = "sqlx-postgres"),
+                not(feature = "mysql")
             ))]
             {
                 $crate::with_test_db!("sqlite_testdb", |$db: $ty| $test)
@@ -406,7 +460,8 @@ macro_rules! with_test_db {
             #[cfg(not(any(
                 feature = "postgres",
                 feature = "sqlx-postgres",
-                feature = "sqlx-sqlite"
+                feature = "sqlx-sqlite",
+                feature = "mysql"
             )))]
             {
                 compile_error!("No database backend feature enabled")
@@ -421,7 +476,7 @@ macro_rules! with_test_db {
             use $crate::backend::DatabaseBackend;
 
             // Create backend for the URL based on feature
-            #[cfg(all(feature = "postgres", not(feature = "sqlx-postgres")))]
+            #[cfg(all(feature = "postgres", not(feature = "sqlx-postgres"), not(feature = "mysql")))]
             #[allow(unused_variables)]
             let backend = $crate::backends::postgres::PostgresBackend::new($url)
                 .await
@@ -431,10 +486,15 @@ macro_rules! with_test_db {
             let backend = $crate::backends::sqlx::SqlxPostgresBackend::new($url)
                 .expect("Failed to create SqlxPostgresBackend");
 
+            #[cfg(feature = "mysql")]
+            let backend = $crate::backends::mysql::MySqlBackend::new($url)
+                .expect("Failed to create MySqlBackend");
+
             #[cfg(all(
                 feature = "sqlx-sqlite",
                 not(feature = "postgres"),
-                not(feature = "sqlx-postgres")
+                not(feature = "sqlx-postgres"),
+                not(feature = "mysql")
             ))]
             let backend = $crate::backends::sqlite::SqliteBackend::new($url)
                 .await
@@ -536,20 +596,25 @@ macro_rules! with_test_db {
 #[cfg(feature = "mysql")]
 #[macro_export]
 macro_rules! with_mysql_test_db {
-    ($f:expr) => {{
-        let backend = MySqlBackend::new(&get_mysql_url().unwrap()).await.unwrap();
-        let template = TestDatabaseTemplate::new(backend, PoolConfig::default(), 1)
-            .await
-            .unwrap();
+    // Version without explicit URL
+    (|$db:ident| $test:expr) => {
+        $crate::with_test_db!("mysql://root:password@mysql:3306/", |$db| $test)
+    };
 
-        let db = template.get_immutable_database().await.unwrap();
-        let test_db = TestDatabaseTemplate::new(
-            db.get_pool().clone(),
-            format!("test_user_{}", uuid::Uuid::new_v4()),
-        );
+    // Version with explicit URL
+    ($url:expr, |$db:ident| $test:expr) => {
+        $crate::with_test_db!($url, |$db| $test)
+    };
 
-        $f(test_db).await
-    }};
+    // Version with type annotation
+    (|$db:ident: $ty:ty| $test:expr) => {
+        $crate::with_test_db!("mysql://root:password@mysql:3306/", |$db: $ty| $test)
+    };
+
+    // Version with type annotation and URL
+    ($url:expr, |$db:ident: $ty:ty| $test:expr) => {
+        $crate::with_test_db!($url, |$db: $ty| $test)
+    };
 }
 
 /// Creates a new SQLx PostgreSQL test database and executes the provided test function.

@@ -39,6 +39,8 @@ async fn test_postgres_template() {
 #[tokio::test]
 #[cfg(feature = "mysql")]
 async fn test_mysql_template() {
+    use crate::{PoolConfig, SqlSource, TestDatabaseTemplate};
+
     let backend = MySqlBackend::new(&get_mysql_url().unwrap()).unwrap();
 
     let template = TestDatabaseTemplate::new(backend, PoolConfig::default(), 5)
@@ -47,7 +49,7 @@ async fn test_mysql_template() {
 
     // Initialize template with SQL scripts
     template
-        .initialize_template(|mut conn| async move {
+        .initialize(|mut conn| async move {
             conn.run_sql_scripts(&SqlSource::Embedded(SQL_SCRIPTS))
                 .await?;
             Ok(())
@@ -56,12 +58,12 @@ async fn test_mysql_template() {
         .unwrap();
 
     // Get two separate databases
-    let db1 = template.get_immutable_database().await.unwrap();
-    let db2 = template.get_immutable_database().await.unwrap();
+    let db1 = template.create_test_database().await.unwrap();
+    let db2 = template.create_test_database().await.unwrap();
 
     // Verify they are separate
-    let mut conn1 = db1.get_pool().acquire().await.unwrap();
-    let mut conn2 = db2.get_pool().acquire().await.unwrap();
+    let mut conn1 = db1.pool.acquire().await.unwrap();
+    let mut conn2 = db2.pool.acquire().await.unwrap();
 
     // Insert into db1
     conn1

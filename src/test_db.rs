@@ -465,7 +465,7 @@ fn drop_mysql_database(parsed: &Url, database_name: &str) -> Result<()> {
 
 #[cfg(feature = "mysql")]
 fn terminate_mysql_connections(database_host: &str, database_name: &str) -> Result<()> {
-    let output = Command::new("mysql")
+    let output = std::process::Command::new("mysql")
         .arg(format!("--host={}", database_host))
         .arg("-e")
         .arg(format!(
@@ -473,7 +473,7 @@ fn terminate_mysql_connections(database_host: &str, database_name: &str) -> Resu
             database_name
         ))
         .output()
-        .map_err(|e| DbError::IoError(e.to_string()))?;
+        .map_err(|e| DbError::new(format!("Io error: {}", e)))?;
 
     if !output.status.success() {
         return Err(DbError::new(format!(
@@ -486,12 +486,12 @@ fn terminate_mysql_connections(database_host: &str, database_name: &str) -> Resu
 
 #[cfg(feature = "mysql")]
 fn drop_mysql_database_command(database_host: &str, database_name: &str) -> Result<()> {
-    let output = Command::new("mysql")
+    let output = std::process::Command::new("mysql")
         .arg(database_host)
         .arg("-e")
         .arg(format!("DROP DATABASE IF EXISTS `{}`", database_name))
         .output()
-        .map_err(|e| DbError::IoError(e.to_string()))?;
+        .map_err(|e| DbError::new(format!("Io error: {}", e)))?;
 
     if !output.status.success() {
         return Err(DbError::new(format!(
