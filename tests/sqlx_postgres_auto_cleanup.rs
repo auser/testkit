@@ -129,7 +129,7 @@ mod sqlx_postgres_auto_cleanup_tests {
                 "Testkit databases were not properly cleaned up: {}",
                 output_str
             );
-            assert!(false, "Testkit databases were not properly cleaned up");
+            panic!("Testkit databases were not properly cleaned up");
         }
 
         info!("=== SQLx PostgreSQL auto-cleanup test completed successfully ===");

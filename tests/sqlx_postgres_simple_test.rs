@@ -3,8 +3,8 @@
 #[cfg(feature = "sqlx-postgres")]
 mod sqlx_postgres_simple_tests {
     use db_testkit::{
-        backend::Connection, backends::SqlxPostgresBackend, env::get_sqlx_postgres_url,
-        init_tracing, test_db::TestDatabase, PoolConfig, Result,
+        backends::SqlxPostgresBackend, env::get_sqlx_postgres_url, init_tracing,
+        test_db::TestDatabase, PoolConfig, Result,
     };
     use sqlx::Row;
     use tracing::info;

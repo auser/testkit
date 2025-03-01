@@ -1,8 +1,5 @@
 use db_testkit::{
-    backend::{Connection, DatabaseBackend},
-    error::Result,
-    init_tracing,
-    test_db::TestDatabaseTemplate,
+    backend::DatabaseBackend, error::Result, init_tracing, test_db::TestDatabaseTemplate,
     PoolConfig,
 };
 
@@ -10,7 +7,13 @@ use tracing::info;
 
 #[cfg(any(feature = "postgres", feature = "sqlx-postgres"))]
 mod postgres_template_tests {
+    use std::sync::Arc;
+
     use super::*;
+    use db_testkit::DbError;
+    use sqlx::Executor;
+    use tokio::sync::Semaphore;
+    use tracing::error;
 
     #[tokio::test]
     async fn test_template_database_creation() -> Result<()> {
@@ -38,7 +41,7 @@ mod postgres_template_tests {
 
         // Initialize the template with a table
         template
-            .initialize(|mut conn| async move {
+            .initialize(|conn| async move {
                 conn.execute(
                     "CREATE TABLE template_test (
                         id SERIAL PRIMARY KEY,
@@ -57,8 +60,8 @@ mod postgres_template_tests {
         let test_db2 = template.create_test_database().await?;
 
         // Verify both databases have the template data
-        let mut conn1 = test_db1.connection().await?;
-        let mut conn2 = test_db2.connection().await?;
+        let conn1 = test_db1.connection().await?;
+        let conn2 = test_db2.connection().await?;
 
         let rows1 = conn1.fetch_all("SELECT * FROM template_test").await?;
         let rows2 = conn2.fetch_all("SELECT * FROM template_test").await?;
@@ -85,7 +88,7 @@ mod postgres_template_tests {
 
         // Clean up is handled by the Drop implementation for TestDatabase
         // But we can explicitly clean up for this test
-        let backend = test_db1.backend();
+        let backend = test_db1.backend().clone();
         let db_name1 = test_db1.name().clone();
         let db_name2 = test_db2.name().clone();
         let template_name = template.name().clone();
@@ -137,7 +140,7 @@ mod postgres_template_tests {
 
         // Initialize the template with a table
         template
-            .initialize(|mut conn| async move {
+            .initialize(|conn| async move {
                 conn.execute(
                     "CREATE TABLE concurrent_test (
                         id SERIAL PRIMARY KEY,
@@ -159,22 +162,22 @@ mod postgres_template_tests {
         for i in 0..NUM_DATABASES {
             let template_clone = template.clone();
             let sem_clone = semaphore.clone();
-            let handle = task::spawn(async move {
+            let handle = tokio::spawn(async move {
                 let _permit = sem_clone.acquire().await.unwrap();
                 info!("Creating test database {}", i);
                 let test_db = template_clone.create_test_database().await?;
 
                 // Verify the database was created with the template data
-                let mut conn = test_db.connection().await?;
+                let conn = test_db.connection().await?;
                 let rows = conn.fetch_all("SELECT * FROM concurrent_test").await?;
                 assert_eq!(rows.len(), 1, "Expected 1 row in test database {}", i);
 
                 // Make a unique change to this database
-                conn.execute(&format!(
+                let query = format!(
                     "INSERT INTO concurrent_test (value) VALUES ('db{}_value')",
                     i
-                ))
-                .await?;
+                );
+                sqlx::query(&query).execute(conn.sqlx_pool()).await?;
 
                 // Verify the change was made
                 let rows = conn.fetch_all("SELECT * FROM concurrent_test").await?;

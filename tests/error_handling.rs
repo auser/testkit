@@ -79,6 +79,7 @@ mod postgres_error_tests {
     #[tokio::test]
     async fn test_transaction_rollback() {
         init_tracing();
+        use sqlx::{Executor, Row};
         info!("Testing transaction rollback functionality");
 
         with_test_db!(|db| async move {

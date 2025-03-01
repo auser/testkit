@@ -767,7 +767,8 @@ mod tests {
                     tracing::info!("Created table with Postgres backend");
                 }
 
-                #[cfg(all(feature = "sqlx-backend", not(feature = "postgres")))]
+                // not(feature = "postgres")
+                #[cfg(all(feature = "sqlx-backend"))]
                 {
                     // For SQLx backends, use DatabasePool trait to acquire connection
                     use crate::backend::DatabasePool;
@@ -775,11 +776,11 @@ mod tests {
                     #[cfg(feature = "sqlx-postgres")]
                     {
                         // Get a connection for Postgres
-                        let conn = test_db.pool.acquire().await.unwrap();
+                        let mut conn = test_db.pool.acquire().await.unwrap();
                         let res = sqlx::query(
                             "CREATE TABLE some_test_items (id UUID PRIMARY KEY, name TEXT NOT NULL)"
                         )
-                        .execute(conn)
+                        .execute(&mut conn)
                         .await;
                         tracing::info!("Created table with SQLx Postgres backend: {:?}", res);
                     }

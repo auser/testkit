@@ -3,13 +3,13 @@
 use db_testkit::{
     error::Result,
     init_tracing,
-    PoolConfig,
 };
 
 use tracing::info;
 
 #[cfg(any(feature = "postgres", feature = "sqlx-postgres"))]
 mod postgres_cross_db_tests {
+    use db_testkit::with_test_db;
     use sqlx::Executor;
     use super::*;
 
@@ -23,14 +23,14 @@ mod postgres_cross_db_tests {
         // Create two separate test databases
         with_test_db!(connection_string, |db1| async move {
             // Set up first database with a table
-            let mut conn1 = db1.connection().await?;
+            let conn1 = db1.connection().await?;
             conn1.execute("CREATE TABLE db1_table (id INT PRIMARY KEY, value TEXT)").await?;
             conn1.execute("INSERT INTO db1_table VALUES (1, 'db1_value')").await?;
 
             // Create a second test database
             with_test_db!(connection_string, |db2| async move {
                 // Set up second database with a different table
-                let mut conn2 = db2.connection().await?;
+                let conn2 = db2.connection().await?;
                 conn2.execute("CREATE TABLE db2_table (id INT PRIMARY KEY, value TEXT)").await?;
                 conn2.execute("INSERT INTO db2_table VALUES (2, 'db2_value')").await?;
 
@@ -59,20 +59,22 @@ mod postgres_cross_db_tests {
     #[tokio::test]
     async fn test_transaction_isolation() -> Result<()> {
         init_tracing();
+        use sqlx::{Executor, Row};
+        use db_testkit::Connection;
         info!("Testing transaction isolation");
 
         with_test_db!(|db| async move {
             // Set up a test table
-            let mut conn = db.connection().await?;
+            let conn = db.connection().await?;
             conn.execute("CREATE TABLE isolation_test (id INT PRIMARY KEY, value TEXT)").await?;
             conn.execute("INSERT INTO isolation_test VALUES (1, 'initial')").await?;
 
             // Create two separate connections to the same database
             let mut conn1 = db.connection().await?;
-            let mut conn2 = db.connection().await?;
+            let conn2 = db.connection().await?;
 
             // Start a transaction on the first connection
-            let mut tx1 = conn1.begin().await?;
+            let mut  tx1 = conn1.begin().await?;
             
             // Update the value in the transaction
             tx1.execute("UPDATE isolation_test SET value = 'updated' WHERE id = 1").await?;
