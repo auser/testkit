@@ -21,9 +21,7 @@ mod sqlx_sqlite_tests {
     async fn test_sqlx_sqlite_template() {
         init_tracing();
 
-        let backend = SqlxSqliteBackend::new("sqlite_testkit_template")
-            .await
-            .unwrap();
+        let backend = SqlxSqliteBackend::new("sqlite_testdb").await.unwrap();
 
         let template = TestDatabaseTemplate::new(backend, PoolConfig::default(), 5)
             .await
