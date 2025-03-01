@@ -1,14 +1,12 @@
 use db_testkit::{
-    backend::{Connection, DatabaseBackend, DatabasePool},
-    error::{DbError, Result},
+    backend::{Connection, DatabaseBackend},
+    error::Result,
     init_tracing,
     test_db::TestDatabaseTemplate,
-    with_test_db, PoolConfig,
+    PoolConfig,
 };
-use std::sync::Arc;
-use tokio::sync::Semaphore;
-use tokio::task;
-use tracing::{debug, error, info};
+
+use tracing::info;
 
 #[cfg(any(feature = "postgres", feature = "sqlx-postgres"))]
 mod postgres_template_tests {
@@ -289,20 +287,18 @@ mod mysql_template_tests {
         let result = conn.execute("SELECT * FROM template_test").await?;
         info!("Query executed successfully");
 
-        // Get the backend and database names for cleanup
+        // Get backend and names for cleanup
         let backend = template.backend().clone();
         let db_name = test_db.name().clone();
         let template_name = template.name().clone();
 
-        // Clean up by dropping objects
+        // Drop connection and database objects
         drop(conn);
         drop(test_db);
+        drop(template);
 
         // Wait a bit to ensure database connections are closed
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-        // Now we can drop the template since we've stored the necessary info
-        drop(template);
 
         // Explicitly drop databases using the stored backend and names
         backend.drop_database(&db_name).await?;
@@ -322,7 +318,7 @@ mod sqlite_template_tests {
         info!("Testing SQLite template database operations");
 
         // Create a backend
-        let backend = db_testkit::backends::sqlite::SqliteBackend::new("sqlite_testkit_template")
+        let backend = db_testkit::backends::sqlite::SqliteBackend::new("sqlite_testdb")
             .await
             .expect("Failed to create database backend");
 
@@ -351,12 +347,12 @@ mod sqlite_template_tests {
         let test_db = template.create_test_database().await?;
 
         // Verify the database has the template data
-        let mut conn = test_db.connection().await?;
+        let conn = test_db.connection().await?;
         let rows = conn.fetch_all("SELECT * FROM template_test").await?;
         assert_eq!(rows.len(), 1, "Expected 1 row in test database");
 
         // Get backend and names for cleanup
-        let backend = template.backend();
+        let backend = template.backend().clone();
         let db_name = test_db.name().clone();
         let template_name = template.name().clone();
 

@@ -3,14 +3,14 @@
 use db_testkit::{
     error::Result,
     init_tracing,
-    with_test_db, 
+    PoolConfig,
 };
 
 use tracing::info;
 
 #[cfg(any(feature = "postgres", feature = "sqlx-postgres"))]
 mod postgres_cross_db_tests {
-    use sqlx_core::executor::Executor;
+    use sqlx::Executor;
     use super::*;
 
     #[tokio::test]
@@ -102,8 +102,7 @@ mod postgres_cross_db_tests {
 #[cfg(feature = "sqlx-sqlite")]
 mod sqlite_cross_db_tests {
     use super::*;
-    use sqlx_core::executor::Executor;
-
+    use sqlx::query;
 
     #[tokio::test]
     async fn test_sqlite_in_memory_isolation() -> Result<()> {
@@ -124,28 +123,48 @@ mod sqlite_cross_db_tests {
         let test_db2 = db_testkit::test_db::TestDatabase::new(backend2, PoolConfig::default()).await?;
         
         // Set up data in first database
-        let mut conn1 = test_db1.connection().await?;
-        conn1.execute("CREATE TABLE test_table1 (id INTEGER PRIMARY KEY, value TEXT)").await?;
-        conn1.execute("INSERT INTO test_table1 VALUES (1, 'db1_value')").await?;
+        let conn1 = test_db1.connection().await?;
+        let pool1 = conn1.sqlx_pool();
+        
+        query("CREATE TABLE test_table1 (id INTEGER PRIMARY KEY, value TEXT)")
+            .execute(pool1)
+            .await?;
+        query("INSERT INTO test_table1 VALUES (1, 'db1_value')")
+            .execute(pool1)
+            .await?;
         
         // Set up data in second database
-        let mut conn2 = test_db2.connection().await?;
-        conn2.execute("CREATE TABLE test_table2 (id INTEGER PRIMARY KEY, value TEXT)").await?;
-        conn2.execute("INSERT INTO test_table2 VALUES (2, 'db2_value')").await?;
+        let conn2 = test_db2.connection().await?;
+        let pool2 = conn2.sqlx_pool();
+        
+        query("CREATE TABLE test_table2 (id INTEGER PRIMARY KEY, value TEXT)")
+            .execute(pool2)
+            .await?;
+        query("INSERT INTO test_table2 VALUES (2, 'db2_value')")
+            .execute(pool2)
+            .await?;
         
         // Verify each database has its own data
-        let rows1 = conn1.fetch_all("SELECT * FROM test_table1").await?;
+        let rows1 = query("SELECT * FROM test_table1")
+            .fetch_all(pool1)
+            .await?;
         assert_eq!(rows1.len(), 1, "Expected 1 row in test_table1");
         
-        let rows2 = conn2.fetch_all("SELECT * FROM test_table2").await?;
+        let rows2 = query("SELECT * FROM test_table2")
+            .fetch_all(pool2)
+            .await?;
         assert_eq!(rows2.len(), 1, "Expected 1 row in test_table2");
         
         // Verify the second database doesn't have tables from the first
-        let result = conn2.execute("SELECT * FROM test_table1").await;
+        let result = query("SELECT * FROM test_table1")
+            .execute(pool2)
+            .await;
         assert!(result.is_err(), "Second database should not see first database's tables");
         
         // Verify the first database doesn't have tables from the second
-        let result = conn1.execute("SELECT * FROM test_table2").await;
+        let result = query("SELECT * FROM test_table2")
+            .execute(pool1)
+            .await;
         assert!(result.is_err(), "First database should not see second database's tables");
         
         info!("SQLite in-memory database isolation test passed");

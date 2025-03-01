@@ -5,11 +5,12 @@ mod common;
 #[cfg(feature = "sqlx-sqlite")]
 mod sqlx_sqlite_tests {
     use db_testkit::{
-        backend::{Connection, DatabasePool},
+        backend::{Connection, DatabaseBackend, DatabasePool},
         backends::SqlxSqliteBackend,
         migrations::RunSql,
-        PoolConfig, SqlSource, TestDatabaseTemplate,
+        DatabaseName, PoolConfig, SqlSource, TestDatabaseTemplate,
     };
+    use sqlx::Row;
     use std::path::Path;
     use tempfile::tempdir;
     use tracing::info;
@@ -20,7 +21,9 @@ mod sqlx_sqlite_tests {
     async fn test_sqlx_sqlite_template() {
         init_tracing();
 
-        let backend = SqlxSqliteBackend::new().unwrap();
+        let backend = SqlxSqliteBackend::new("sqlite_testkit_template")
+            .await
+            .unwrap();
 
         let template = TestDatabaseTemplate::new(backend, PoolConfig::default(), 5)
             .await
@@ -41,8 +44,8 @@ mod sqlx_sqlite_tests {
         let db2 = template.create_test_database().await.unwrap();
 
         // Log database paths for debugging
-        info!("Created database 1: {}", db1.name);
-        info!("Created database 2: {}", db2.name);
+        info!("Created database 1: {}", db1.db_name);
+        info!("Created database 2: {}", db2.db_name);
 
         // Verify they are separate
         let mut conn1 = db1.pool.acquire().await.unwrap();
@@ -113,14 +116,22 @@ mod sqlx_sqlite_tests {
         info!("Using temporary directory: {}", dir_path);
 
         // Create backend with custom directory
-        let backend = SqlxSqliteBackend::new_with_dir(dir_path).unwrap();
+        let backend = SqlxSqliteBackend::new_with_dir(dir_path).await.unwrap();
 
         // Create a database
-        let db = backend.create_database("custom_dir_test").await.unwrap();
-        info!("Created database: {}", db.name);
+        let db_name = DatabaseName::new(Some("custom_dir_test"));
+        backend.create_database(&db_name).await.unwrap();
+
+        // Create a pool for the database
+        let pool = backend
+            .create_pool(&db_name, &PoolConfig::default())
+            .await
+            .unwrap();
+
+        info!("Created database: {}", db_name);
 
         // Verify the database file exists in our custom directory
-        let db_path = Path::new(dir_path).join(format!("{}.db", db.name));
+        let db_path = Path::new(dir_path).join(format!("{}.db", db_name));
         assert!(
             db_path.exists(),
             "Database file should exist at {:?}",
@@ -128,7 +139,7 @@ mod sqlx_sqlite_tests {
         );
 
         // Create table and insert data
-        let mut conn = db.pool.acquire().await.unwrap();
+        let mut conn = pool.acquire().await.unwrap();
         conn.run_sql_scripts(&SqlSource::Embedded(SQL_SCRIPTS))
             .await
             .unwrap();
@@ -143,26 +154,26 @@ mod sqlx_sqlite_tests {
         let rows = conn.fetch("SELECT email, name FROM users").await.unwrap();
 
         assert_eq!(rows.len(), 1, "Should have one row");
-        assert_eq!(
-            rows[0].get::<String>("email").unwrap(),
-            "sqlite@example.com",
-            "Email should match"
-        );
-        assert_eq!(
-            rows[0].get::<String>("name").unwrap(),
-            "SQLite User",
-            "Name should match"
-        );
+
+        // Get the row values properly
+        let email: String = rows[0].try_get("email").unwrap();
+        let name: String = rows[0].try_get("name").unwrap();
+
+        assert_eq!(email, "sqlite@example.com", "Email should match");
+        assert_eq!(name, "SQLite User", "Name should match");
 
         // Drop the connection and database
         drop(conn);
-        drop(db);
+        drop(pool);
 
         // Verify cleanup (the file should still exist since we're using a custom directory)
         assert!(
             db_path.exists(),
             "Database file should still exist after drop"
         );
+
+        // Clean up
+        backend.drop_database(&db_name).await.unwrap();
 
         // Cleanup temp directory when it goes out of scope
     }

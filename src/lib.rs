@@ -53,13 +53,6 @@ mod sqlite_tests {
         not(feature = "postgres"),
         not(feature = "sqlx-postgres")
     ))]
-    use super::*;
-    #[cfg(all(
-        feature = "sqlx-sqlite",
-        not(feature = "postgres"),
-        not(feature = "sqlx-postgres")
-    ))]
-    use sqlx::Row;
 
     #[tokio::test]
     #[cfg(all(
@@ -69,12 +62,20 @@ mod sqlite_tests {
     ))]
     async fn test_sqlite_basic_operations() {
         // Setup logging
-        std::env::set_var("RUST_LOG", "sqlx=debug");
-        ::tracing_subscriber::fmt::try_init();
 
-        with_test_db!(|db| async move {
+        use crate::{with_test_db, PoolConfig, TestDatabaseTemplate};
+        use crate::backend::DatabasePool;
+        use crate::backend::Connection;
+        use sqlx::Row;
+
+        std::env::set_var("RUST_LOG", "sqlx=debug");
+        let _ = ::tracing_subscriber::fmt::try_init();
+
+        let _ = with_test_db!(|db| async move {
             // Create a test database
-            let test_db = db.create_test_database().await.unwrap();
+            let backend = db.backend.clone();
+            let template = TestDatabaseTemplate::new(backend, PoolConfig::default(), 5).await.unwrap();
+            let test_db = template.create_test_database().await.unwrap();
 
             // Get a connection
             let mut conn = test_db.pool.acquire().await.unwrap();
@@ -103,7 +104,7 @@ mod sqlite_tests {
             assert_eq!(count, 2, "Expected 2 items in the test_items table");
 
             Ok(())
-        });
+        }).await;
     }
 }
 
@@ -134,7 +135,7 @@ mod mysql_tests {
 
         // Use a try-catch approach to handle potential connection errors
         async {
-            with_test_db!(|db| async move {
+            let _ = with_test_db!(|db| async move {
                 ::tracing::info!("Connected to MySQL test database: {}", db.db_name);
                 
                 // Use the database directly - we're using superuser credentials
@@ -182,7 +183,7 @@ mod mysql_tests {
                 ::tracing::info!("Verified fetch_optional works");
 
                 Ok(())
-            })
+            }).await;
         }.await;
     }
 }

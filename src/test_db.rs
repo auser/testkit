@@ -434,7 +434,7 @@ fn drop_sqlite_database(parsed: &Url, database_name: &str) -> Result<()> {
         if !path_str.contains('/') && !path_str.contains('\\') {
             // This is likely just the database name, append .db extension if not present
             let mut path = std::path::PathBuf::from(path_str);
-            if path.extension().map_or(true, |ext| ext != "db") {
+            if path.extension().is_none_or(|ext| ext != "db") {
                 path.set_extension("db");
             }
             path
@@ -456,7 +456,7 @@ fn drop_sqlite_database(parsed: &Url, database_name: &str) -> Result<()> {
 
         // For sqlx-sqlite, also try with .db extension
         let mut db_path = path.clone();
-        if db_path.extension().map_or(true, |ext| ext != "db") {
+        if db_path.extension().is_none_or(|ext| ext != "db") {
             db_path.set_extension("db");
             if db_path.exists() {
                 tracing::debug!(

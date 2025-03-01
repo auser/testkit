@@ -721,7 +721,7 @@ mod tests {
             .expect("Failed to connect");
 
         #[cfg(feature = "sqlx-sqlite")]
-        let pool = sqlx::SqlitePool::connect("sqlite_testdb")
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:")
             .await
             .expect("Failed to connect");
 

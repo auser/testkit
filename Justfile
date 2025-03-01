@@ -130,71 +130,7 @@ test-all-sqlite:
 test-backends: test-postgres test-sqlx-postgres test-sqlite test-sqlx-sqlite test-mysql test-sqlx-mysql test-all
     @echo "All backend tests completed"
 
-# Run all auto-cleanup tests for all backends
-test-auto-cleanup:
-    @echo "Running auto-cleanup tests for all backends"
-    cargo test --all-features -- *auto_cleanup
 
-# Run MySQL auto-cleanup test with output
-test-mysql-cleanup:
-    @echo "Running MySQL auto-cleanup test"
-    cargo test --features "mysql" -- --nocapture mysql_auto_cleanup
-
-# Run PostgreSQL auto-cleanup test with output
-test-postgres-cleanup:
-    @echo "Running PostgreSQL auto-cleanup test"
-    cargo test --features "postgres" -- --nocapture postgres_auto_cleanup
-
-# Run SQLx MySQL auto-cleanup test with output
-test-sqlx-mysql-cleanup:
-    @echo "Running SQLx MySQL auto-cleanup test"
-    cargo test --features "sqlx-mysql sqlx-backend" -- --nocapture sqlx_mysql_auto_cleanup
-
-# Run SQLx PostgreSQL auto-cleanup test with output
-test-sqlx-postgres-cleanup:
-    @echo "Running SQLx PostgreSQL auto-cleanup test"
-    cargo test --features "sqlx-postgres sqlx-backend" -- --nocapture sqlx_postgres_auto_cleanup
-
-# Run SQLite auto-cleanup test with output
-test-sqlite-cleanup:
-    @echo "Running SQLite auto-cleanup test"
-    cargo test --features "sqlite" -- --nocapture sqlite_auto_cleanup
-
-# Run SQLx SQLite auto-cleanup test with output
-test-sqlx-sqlite-cleanup:
-    @echo "Running SQLx SQLite auto-cleanup test"
-    cargo test --features "sqlx-sqlite sqlx-backend" -- --nocapture sqlx_sqlite_auto_cleanup
-
-# Run all auto-cleanup tests in sequence with output
-test-all-cleanup: test-mysql-cleanup test-postgres-cleanup test-sqlx-mysql-cleanup test-sqlx-postgres-cleanup test-sqlite-cleanup test-sqlx-sqlite-cleanup
-    @echo "All auto-cleanup tests completed"
-
-# Run SQLite examples
-run-sqlite-examples:
-    @echo "Running SQLite examples"
-    cargo run --features "sqlite" --example simple_sqlite_test
-    cargo run --features "sqlite" --example macro_sqlite_test
-
-# Run PostgreSQL examples
-run-postgres-examples:
-    @echo "Running PostgreSQL examples"
-    cargo run --features "postgres" --example simple_postgres_test
-    cargo run --features "postgres" --example function_postgres_test
-    cargo run --features "sqlx-postgres sqlx-backend" --example sqlx_postgres_usage
-
-# Run MySQL examples
-run-mysql-examples:
-    @echo "Running MySQL examples"
-    cargo run --features "mysql" --example simple_mysql_test
-
-# Run SQLx MySQL examples
-run-sqlx-mysql-examples:
-    @echo "Running SQLx MySQL examples"
-    cargo run --features "sqlx-mysql sqlx-backend" --example sqlx_mysql_usage
-
-# Run all examples
-run-all-examples: run-sqlite-examples run-postgres-examples run-mysql-examples run-sqlx-mysql-examples
-    @echo "All examples completed"
 
 # Run PostgreSQL feature tests
 test-postgres-features:

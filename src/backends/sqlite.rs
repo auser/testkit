@@ -14,6 +14,26 @@ pub struct SqliteConnection {
     pub pool: Pool<Sqlite>,
 }
 
+impl SqliteConnection {
+    /// Get the underlying SQLx pool for direct SQLx operations
+    pub fn sqlx_pool(&self) -> &Pool<Sqlite> {
+        &self.pool
+    }
+
+    /// Execute a SQL query and fetch all results
+    pub async fn fetch_all(&self, sql: &str) -> crate::error::Result<Vec<sqlx::sqlite::SqliteRow>> {
+        sqlx::query(sql)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| crate::error::DbError::new(e.to_string()))
+    }
+
+    /// Execute a SQL query and fetch results
+    pub async fn fetch(&self, sql: &str) -> crate::error::Result<Vec<sqlx::sqlite::SqliteRow>> {
+        self.fetch_all(sql).await
+    }
+}
+
 #[async_trait]
 impl Connection for SqliteConnection {
     type Transaction<'conn> = Transaction<'conn, Sqlite>;
@@ -54,6 +74,11 @@ impl SqliteBackend {
         Ok(Self {
             base_path: PathBuf::from(base_path),
         })
+    }
+
+    /// Create a SqliteBackend with a custom directory path
+    pub async fn new_with_dir(dir_path: &str) -> Result<Self> {
+        Self::new(dir_path).await
     }
 
     /// Create a new SqliteBackend with the default base path in /tmp

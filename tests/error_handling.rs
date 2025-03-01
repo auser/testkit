@@ -1,9 +1,5 @@
-use db_testkit::{
-    backend::{Connection, DatabaseBackend, DatabasePool},
-    error::{DbError, Result},
-    init_tracing, with_test_db,
-};
-use tracing::{debug, error, info};
+use db_testkit::{backend::Connection, error::Result, init_tracing, with_test_db};
+use tracing::info;
 
 // Tests for error handling and edge cases
 #[cfg(any(feature = "postgres", feature = "sqlx-postgres"))]

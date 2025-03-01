@@ -1,9 +1,10 @@
 #[cfg(feature = "sqlx-sqlite")]
 mod sqlx_sqlite_auto_cleanup_tests {
-    use db_testkit::backend::Connection;
-    use db_testkit::{with_test_db, Result};
+    use db_testkit::{
+        backend::{Connection, DatabasePool},
+        with_test_db, Result,
+    };
     use std::fs;
-    use std::path::Path;
     use std::time::Duration;
     use tokio::time::sleep;
     use tracing::{debug, info};
@@ -24,7 +25,7 @@ mod sqlx_sqlite_auto_cleanup_tests {
         {
             // Run a test with SQLx SQLite database that will be auto-cleaned
             info!("--- Creating test database ---");
-            with_test_db(|test_db| async move {
+            let _ = with_test_db!(|test_db| async move {
                 // Log the database name for verification
                 let db_name = test_db.db_name.clone();
                 info!("Created test database: {}", db_name);
@@ -43,7 +44,7 @@ mod sqlx_sqlite_auto_cleanup_tests {
                 assert_eq!(rows.len(), 1);
 
                 // Get file path of the SQLite database
-                let connection_string = test_db.connection_string();
+                let connection_string = test_db.pool.connection_string();
                 let file_path = connection_string.trim_start_matches("sqlite://");
                 info!(
                     "Test operations completed successfully on database: {} (file: {})",
@@ -80,7 +81,7 @@ mod sqlx_sqlite_auto_cleanup_tests {
 
         let testkit_files = fs::read_dir(temp_dir)
             .expect("Failed to read temp directory")
-            .filter_map(Result::ok)
+            .filter_map(|res| res.ok())
             .filter(|entry| {
                 if let Ok(file_name) = entry.file_name().into_string() {
                     file_name.starts_with("testkit_")

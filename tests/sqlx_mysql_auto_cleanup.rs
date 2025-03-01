@@ -1,6 +1,7 @@
 #[cfg(feature = "sqlx-mysql")]
 mod sqlx_mysql_auto_cleanup_tests {
     use db_testkit::{with_test_db, Result};
+    use sqlx::Row;
     use std::time::Duration;
     use tokio::time::sleep;
     use tracing::{debug, info};
@@ -27,26 +28,27 @@ mod sqlx_mysql_auto_cleanup_tests {
         {
             // Run a test with MySQL database that will be auto-cleaned
             info!("--- Creating test database ---");
-            with_test_db!(|test_db| async move {
+            let _ = with_test_db!("mysql://root@mysql:3306", |test_db| async move {
                 // Log the database name for verification
                 let db_name = test_db.db_name.clone();
                 info!("Created test database: {}", db_name);
 
                 // Get a connection and verify it works
                 let conn = test_db.connection().await?;
+                let pool = conn.sqlx_pool();
 
                 // Execute a simple query to verify connection
                 sqlx::query("CREATE TABLE test_table (id INT)")
-                    .execute(&conn)
+                    .execute(pool)
                     .await?;
 
                 sqlx::query("INSERT INTO test_table VALUES (1), (2), (3)")
-                    .execute(&conn)
+                    .execute(pool)
                     .await?;
 
                 // Query the data to verify
                 let row = sqlx::query("SELECT COUNT(*) FROM test_table")
-                    .fetch_one(&conn)
+                    .fetch_one(pool)
                     .await?;
 
                 let count: i64 = row.get(0);
@@ -64,7 +66,8 @@ mod sqlx_mysql_auto_cleanup_tests {
                 sleep(Duration::from_millis(100)).await;
 
                 Ok(())
-            });
+            })
+            .await;
 
             info!("--- Test function completed, TestDatabase instance should be dropped soon ---");
 
