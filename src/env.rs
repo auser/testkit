@@ -40,7 +40,7 @@ pub fn get_postgres_url() -> Result<String> {
 ///
 /// Returns a `Result` containing the database URL string, or an error if the
 /// environment variable is not found or is invalid.
-#[cfg(feature = "mysql")]
+#[cfg(any(feature = "mysql", feature = "sqlx-mysql"))]
 pub fn get_mysql_url() -> Result<String> {
     load_env();
 
@@ -104,4 +104,46 @@ pub fn get_sqlite_url() -> Result<String> {
         // Default to a temporary directory for SQLite
         String::from("/tmp/sqlite-testkit")
     }))
+}
+
+/// Gets the SQLx MySQL database URL from environment variables.
+///
+/// This function looks for a `MYSQL_DATABASE_URL` environment variable that contains
+/// a valid MySQL connection string compatible with SQLx.
+///
+/// # Returns
+///
+/// Returns a `Result` containing the database URL string, or an error if the
+/// environment variable is not found or is invalid.
+#[cfg(feature = "sqlx-mysql")]
+pub fn get_sqlx_mysql_url() -> Result<String> {
+    load_env();
+
+    // First try to get from environment
+    if let Ok(url) = std::env::var("MYSQL_DATABASE_URL") {
+        tracing::info!("Using MySQL URL from environment: {}", url);
+        return Ok(url);
+    }
+
+    // Try with Docker hostnames first - without database suffix which can cause connection issues
+    // Adding connection parameters: connection timeout, SSL disabled, and other stability parameters
+    let urls = [
+        // Docker configurations - preferred for tests
+        "mysql://root@mysql:3306?timeout=60&ssl-mode=DISABLED",
+        "mysql://root:@mysql:3306?timeout=60&ssl-mode=DISABLED",
+        // Local configurations as fallbacks
+        "mysql://root@localhost:3306?timeout=60&ssl-mode=DISABLED",
+        "mysql://root@localhost:3336?timeout=60&ssl-mode=DISABLED",
+        "mysql://root@host.docker.internal:3336?timeout=60&ssl-mode=DISABLED",
+    ];
+
+    // Log which URLs we're going to try
+    tracing::info!("Will try the following MySQL URLs for SQLx:");
+    for (i, url) in urls.iter().enumerate() {
+        tracing::info!("  {}: {}", i + 1, url);
+    }
+
+    // Return the first URL - the actual connection testing happens in the SqlxMySqlBackend
+    tracing::info!("Using MySQL URL for SQLx: {}", urls[0]);
+    Ok(urls[0].to_string())
 }

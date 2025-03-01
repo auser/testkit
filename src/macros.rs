@@ -49,7 +49,8 @@ use crate::{backends::sqlite::SqliteBackend, env::get_sqlite_url};
     feature = "postgres",
     feature = "sqlx-postgres",
     feature = "sqlx-sqlite",
-    feature = "mysql"
+    feature = "mysql",
+    feature = "sqlx-mysql"
 ))]
 #[macro_export]
 macro_rules! with_test_db {
@@ -75,6 +76,11 @@ macro_rules! with_test_db {
             #[cfg(feature = "mysql")]
             #[allow(unused_variables)]
             let backend = $crate::backends::mysql::MySqlBackend::new($url)
+                .expect("Failed to create database backend");
+
+            #[cfg(feature = "sqlx-mysql")]
+            #[allow(unused_variables)]
+            let backend = $crate::backends::sqlx::SqlxMySqlBackend::new($url)
                 .expect("Failed to create database backend");
 
             #[cfg(all(
@@ -199,7 +205,8 @@ macro_rules! with_test_db {
                 feature = "postgres",
                 feature = "sqlx-postgres",
                 feature = "sqlx-sqlite",
-                feature = "mysql"
+                feature = "mysql",
+                feature = "sqlx-mysql"
             )))]
             {
                 compile_error!("No database backend feature enabled")
@@ -700,12 +707,23 @@ mod tests {
         feature = "sqlx-sqlite"
     ))]
     async fn test_direct_connection() {
-        setup_logging(); // Call it here
+        setup_logging();
+        #[cfg(feature = "sqlx-postgres")]
         let pool = sqlx::PgPool::connect(
             "postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable",
         )
         .await
         .expect("Failed to connect");
+
+        #[cfg(feature = "sqlx-mysql")]
+        let pool = sqlx::MySqlPool::connect("mysql://root@mysql:3306/mysql")
+            .await
+            .expect("Failed to connect");
+
+        #[cfg(feature = "sqlx-sqlite")]
+        let pool = sqlx::SqlitePool::connect("sqlite_testdb")
+            .await
+            .expect("Failed to connect");
 
         let result: (i32,) = sqlx::query_as("SELECT 1")
             .fetch_one(&pool)
@@ -757,172 +775,4 @@ mod tests {
         .await
         .unwrap();
     }
-
-    // #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    // #[cfg(feature = "sqlx-postgres")]
-    // async fn test_transaction_rollback() {
-    //     with_test_db!(|db: TestDatabaseTemplate<SqlxPostgresBackend>| async move {
-    //         // Setup: Create a test table
-    //         db.setup(|mut conn| async move {
-    //             sqlx::Executor::execute(
-    //                 &mut conn,
-    //                 "CREATE TABLE test_items (id UUID PRIMARY KEY, name TEXT NOT NULL)",
-    //             )
-    //             .await?;
-    //             Ok(())
-    //         })
-    //         .await
-    //         .unwrap();
-
-    //         let test_id = Uuid::new_v4();
-    //         let test_name = "Test Item";
-
-    //         // Start a transaction
-    //         let mut conn = db.pool.acquire().await.unwrap();
-    //         let mut tx = conn.begin().await.unwrap();
-
-    //         // Insert data
-    //         tx.execute(
-    //             sqlx::query("INSERT INTO test_items (id, name) VALUES ($1, $2)")
-    //                 .bind(test_id)
-    //                 .bind(test_name),
-    //         )
-    //         .await
-    //         .unwrap();
-
-    //         // Rollback instead of commit
-    //         tx.rollback().await.unwrap();
-
-    //         // Verify the data was not committed
-    //         let result = sqlx::query("SELECT name FROM test_items WHERE id = $1")
-    //             .bind(test_id)
-    //             .fetch_optional(&db.pool.pool)
-    //             .await
-    //             .unwrap();
-
-    //         assert!(result.is_none());
-    //     });
-    // }
-
-    // #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    // async fn test_multiple_transactions() {
-    //     with_test_db!(|db: TestDatabaseTemplate<PostgresBackend>| async move {
-    //         // Setup: Create a test table
-    //         db.setup(|mut conn| async move {
-    //             sqlx::Executor::execute(&mut conn, "CREATE TABLE test_items (id UUID PRIMARY KEY, name TEXT NOT NULL, counter INTEGER)")
-    //                 .await?;
-    //             Ok(())
-    //         })
-    //         .await
-    //         .unwrap();
-
-    //         let test_id = Uuid::new_v4();
-
-    //         // First transaction
-    //         let mut conn1 = db.pool.acquire().await.unwrap();
-    //         let mut tx1 = conn1.begin().await.unwrap();
-
-    //         tx1.execute(
-    //             sqlx::query("INSERT INTO test_items (id, name, counter) VALUES ($1, $2, $3)")
-    //                 .bind(test_id)
-    //                 .bind("Test Item")
-    //                 .bind(1),
-    //         )
-    //         .await
-    //         .unwrap();
-
-    //         tx1.commit().await.unwrap();
-
-    //         // Second transaction
-    //         let mut conn2 = db.pool.acquire().await.unwrap();
-    //         let mut tx2 = conn2.begin().await.unwrap();
-
-    //         tx2.execute(
-    //             sqlx::query("UPDATE test_items SET counter = counter + 1 WHERE id = $1")
-    //                 .bind(test_id),
-    //         )
-    //         .await
-    //         .unwrap();
-
-    //         tx2.commit().await.unwrap();
-
-    //         // Verify final state
-    //         let row = sqlx::query("SELECT counter FROM test_items WHERE id = $1")
-    //             .bind(test_id)
-    //             .fetch_one(&db.pool.pool)
-    //             .await
-    //             .unwrap();
-
-    //         assert_eq!(row.get::<i32, _>("counter"), 2);
-    //     });
-    // }
-
-    // #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    // async fn test_concurrent_connections() {
-    //     with_test_db!(|db: TestDatabaseTemplate<PostgresBackend>| async move {
-    //         // Setup: Create a test table
-    //         db.setup(|mut conn| async move {
-    //             sqlx::Executor::execute(
-    //                 &mut conn,
-    //                 "CREATE TABLE test_items (id UUID PRIMARY KEY, name TEXT NOT NULL)",
-    //             )
-    //             .await?;
-    //             Ok(())
-    //         })
-    //         .await
-    //         .unwrap();
-
-    //         // Create multiple concurrent connections
-    //         let mut handles = vec![];
-
-    //         for i in 0..5 {
-    //             let pool = db.pool.clone();
-    //             let handle = tokio::spawn(async move {
-    //                 let mut conn = pool.acquire().await.unwrap();
-    //                 let mut tx = conn.begin().await.unwrap();
-
-    //                 let id = Uuid::new_v4();
-    //                 tx.execute(
-    //                     sqlx::query("INSERT INTO test_items (id, name) VALUES ($1, $2)")
-    //                         .bind(id)
-    //                         .bind(format!("Item {}", i)),
-    //                 )
-    //                 .await
-    //                 .unwrap();
-
-    //                 tx.commit().await.unwrap();
-    //                 id
-    //             });
-    //             handles.push(handle);
-    //         }
-
-    //         // Wait for all operations to complete
-    //         let ids = futures::future::join_all(handles)
-    //             .await
-    //             .into_iter()
-    //             .map(|r| r.unwrap())
-    //             .collect::<Vec<_>>();
-
-    //         // Verify all items were inserted
-    //         let count = sqlx::query("SELECT COUNT(*) as count FROM test_items")
-    //             .fetch_one(&db.pool.pool)
-    //             .await
-    //             .unwrap()
-    //             .get::<i64, _>("count");
-
-    //         assert_eq!(count, 5);
-
-    //         // Verify each specific item
-    //         for id in ids {
-    //             let exists = sqlx::query("SELECT EXISTS(SELECT 1 FROM test_items WHERE id = $1)")
-    //                 .bind(id)
-    //                 .fetch_one(&db.pool.pool)
-    //                 .await
-    //                 .unwrap()
-    //                 .get::<bool, _>("exists");
-
-    //             assert!(exists);
-    //         }
-    //     });
-    // }
 }

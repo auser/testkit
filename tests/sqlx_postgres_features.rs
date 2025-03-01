@@ -186,5 +186,17 @@ mod sqlx_postgres_tests {
         .await
         .unwrap();
         assert_eq!(rolled_back.0, 0, "Rolled back data should not exist");
+
+        // Clean up the database at the end of the test
+        // Manually drop the pool first to close connections
+        drop(pool);
+
+        // Now drop the database
+        let connection_string = backend.connection_string(&db_name);
+        if let Err(e) = db_testkit::test_db::sync_drop_database(&connection_string) {
+            tracing::error!("Failed to drop test database: {}", e);
+        } else {
+            tracing::info!("Successfully dropped test database: {}", db_name);
+        }
     }
 }

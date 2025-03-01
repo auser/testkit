@@ -403,7 +403,8 @@ where
     feature = "postgres",
     feature = "sqlx-postgres",
     feature = "sqlx-sqlite",
-    feature = "mysql"
+    feature = "mysql",
+    feature = "sqlx-mysql"
 )))]
 pub async fn with_test_db<F, Fut>(_test_fn: F)
 where
@@ -549,7 +550,8 @@ where
     feature = "postgres", 
     feature = "mysql",
     feature = "sqlx-postgres",
-    feature = "sqlx-sqlite"
+    feature = "sqlx-sqlite",
+    feature = "sqlx-mysql"
 )))]
 pub async fn with_configured_test_db<F, Fut>(_config: PoolConfig, _test_fn: F)
 where

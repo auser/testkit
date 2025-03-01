@@ -325,7 +325,7 @@ pub fn sync_drop_database(database_uri: &str) -> Result<()> {
     #[cfg(any(feature = "sqlite", feature = "sqlx-sqlite"))]
     drop_sqlite_database(&parsed, database_name)?;
 
-    #[cfg(feature = "mysql")]
+    #[cfg(any(feature = "mysql", feature = "sqlx-mysql"))]
     drop_mysql_database(&parsed, database_name)?;
 
     Ok(())
@@ -473,7 +473,7 @@ fn drop_sqlite_database(parsed: &Url, database_name: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "mysql")]
+#[cfg(any(feature = "mysql", feature = "sqlx-mysql"))]
 fn drop_mysql_database(_parsed: &Url, database_name: &str) -> Result<()> {
     // Skip the URL parsing and just use the direct host that works
     let database_host = "mysql";
@@ -488,7 +488,7 @@ fn drop_mysql_database(_parsed: &Url, database_name: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "mysql")]
+#[cfg(any(feature = "mysql", feature = "sqlx-mysql"))]
 fn terminate_mysql_connections(host: &str, user: &str, database_name: &str) -> Result<()> {
     // First, get process IDs directly without using an intermediate file
     let get_process_output = std::process::Command::new("mysql")
@@ -537,7 +537,7 @@ fn terminate_mysql_connections(host: &str, user: &str, database_name: &str) -> R
     Ok(())
 }
 
-#[cfg(feature = "mysql")]
+#[cfg(any(feature = "mysql", feature = "sqlx-mysql"))]
 fn drop_mysql_database_command(host: &str, user: &str, database_name: &str) -> Result<()> {
     let output = std::process::Command::new("mysql")
         .arg(format!("-h{}", host))

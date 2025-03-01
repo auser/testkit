@@ -1,6 +1,5 @@
 #[cfg(feature = "sqlx-mysql")]
 mod sqlx_mysql_auto_cleanup_tests {
-    use db_testkit::backend::Connection;
     use db_testkit::{with_test_db, Result};
     use std::time::Duration;
     use tokio::time::sleep;
@@ -28,7 +27,7 @@ mod sqlx_mysql_auto_cleanup_tests {
         {
             // Run a test with MySQL database that will be auto-cleaned
             info!("--- Creating test database ---");
-            with_test_db(|test_db| async move {
+            with_test_db!(|test_db| async move {
                 // Log the database name for verification
                 let db_name = test_db.db_name.clone();
                 info!("Created test database: {}", db_name);
@@ -57,8 +56,7 @@ mod sqlx_mysql_auto_cleanup_tests {
                 sleep(Duration::from_millis(100)).await;
 
                 Ok(())
-            })
-            .await;
+            });
 
             info!("--- Test function completed, TestDatabase instance should be dropped soon ---");
 
@@ -91,7 +89,7 @@ mod sqlx_mysql_auto_cleanup_tests {
             info!("All testkit databases were properly cleaned up");
         } else {
             tracing::error!("Testkit databases were not properly cleaned up");
-            assert!(false, "Testkit databases were not properly cleaned up");
+            panic!("Testkit databases were not properly cleaned up");
         }
 
         info!("=== SQLx MySQL auto-cleanup test completed successfully ===");

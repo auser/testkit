@@ -1,5 +1,4 @@
-use db_testkit::{backend::Connection, with_test_db};
-use tracing::info;
+use db_testkit::with_test_db;
 
 #[tokio::main]
 async fn main() {
@@ -15,7 +14,7 @@ async fn main() {
 
 /// Example of using the function-based API for database testing
 async fn test_with_postgres() {
-    let _ = with_test_db!(|db| async move {
+    with_test_db!(|db| async move {
         // Setup database
         db.setup(|mut conn| async move {
             conn.execute(
@@ -52,6 +51,5 @@ async fn test_with_postgres() {
         .await?;
 
         Ok(())
-    })
-    .await;
+    });
 }

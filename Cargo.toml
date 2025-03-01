@@ -27,7 +27,7 @@ dotenvy = "0.15.7"
 tempfile = "3.9.0"
 
 [features]
-default = ["mysql"]
+default = ["sqlx-mysql"]
 postgres = ["dep:tokio-postgres"]
 mysql = ["dep:mysql_async"]
 sqlite = ["sqlx-sqlite"]
