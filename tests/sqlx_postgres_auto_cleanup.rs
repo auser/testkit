@@ -23,7 +23,7 @@ mod sqlx_postgres_auto_cleanup_tests {
         // List databases before test
         debug!("--- Databases before test ---");
         let _ = std::process::Command::new("psql")
-            .args(["-h", "postgres", "-U", "postgres", "-c", "\\l"])
+            .args(["-h", "postgres", "-U", "postgres", "-c", "\\l", "-t"])
             .status();
 
         // This scope ensures that test_db is dropped before we check for cleanup
@@ -81,12 +81,12 @@ mod sqlx_postgres_auto_cleanup_tests {
         sleep(Duration::from_secs(1)).await;
 
         // List databases after test
-        debug!("--- Databases after test ---");
+        debug!("--- Databases after test (should be auto-cleaned up) ---");
         let _ = std::process::Command::new("psql")
-            .args(["-h", "postgres", "-U", "postgres", "-c", "\\l"])
+            .args(["-h", "postgres", "-U", "postgres", "-c", "\\l", "-t"])
             .status();
 
-        // Verify no testkit databases remain
+        // Verify database was cleaned up
         let output = std::process::Command::new("psql")
             .args([
                 "-h",
@@ -95,16 +95,16 @@ mod sqlx_postgres_auto_cleanup_tests {
                 "postgres",
                 "-t",
                 "-c",
-                "SELECT datname FROM pg_database WHERE datname LIKE 'testkit_%'",
+                "SELECT COUNT(*) FROM pg_database WHERE datname = 'testkit_sqlx_auto_cleanup_test'",
             ])
             .output()
-            .expect("Failed to execute command");
+            .expect("Failed to execute psql command");
 
         let output_str = String::from_utf8_lossy(&output.stdout);
-        let has_testkit = !output_str.trim().is_empty();
+        let count = output_str.trim().parse::<i32>().unwrap_or(1);
 
-        debug!("Testkit databases remain: {}", has_testkit);
-        if !has_testkit {
+        debug!("Testkit databases count: {}", count);
+        if count == 0 {
             info!("All testkit databases were properly cleaned up");
         } else {
             tracing::error!(

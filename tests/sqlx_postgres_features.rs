@@ -105,7 +105,7 @@ mod sqlx_postgres_tests {
         let backend = SqlxPostgresBackend::new(&get_sqlx_postgres_url().unwrap()).unwrap();
 
         // Create a DatabaseName instance
-        let db_name = db_testkit::test_db::DatabaseName::new(Some("txn_test"));
+        let db_name = db_testkit::test_db::DatabaseName::new(Some("testkit_txn_test"));
 
         // Create the database properly
         backend.create_database(&db_name).await.unwrap();

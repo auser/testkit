@@ -235,7 +235,3 @@ test-concurrent:
     @echo "Running concurrent database operations tests"
     cargo test --features "postgres" --test concurrent_db_operations
 
-# Run all tests with a specific focus
-test-comprehensive: test-all-backends test-all-features test-auto-cleanup test-concurrent
-    @echo "Comprehensive test suite completed"
-
