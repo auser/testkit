@@ -3,14 +3,16 @@ services:
     build: 
       context: .
       dockerfile: docker/Dockerfile.postgres
+      args:
+        platform: linux/arm64/v8
     restart: always
-    env_file: ./.env
+    env_file: ../.env
     environment:
       POSTGRES_HOST_AUTH_METHOD: trust
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: testkit
-      POSTGRES_PORT: 5442
+      POSTGRES_PORT: 5432
       POSTGRES_HOST: postgres
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
@@ -20,16 +22,18 @@ services:
     networks:
       - testkit
     expose:
-      - "5442:5432"
+      - "5432:5432"
     ports:
-      - "5442:5432"
+      - "5432:5432"
 
   mysql:
     build: 
       context: .
       dockerfile: docker/Dockerfile.mysql
+      args:
+        platform: linux/arm64/v8
     restart: always
-    env_file: ./.env
+    env_file: ../.env
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h localhost"]
       interval: 10s
@@ -47,6 +51,9 @@ services:
     build: 
       context: .
       dockerfile: docker/Dockerfile
+      args:
+        platform: linux/arm64
+    platform: linux/arm64
 
     networks:
       - testkit
@@ -64,12 +71,13 @@ services:
       - target:/workspace/target
 
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?sslmode=disable
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/testkit?sslmode=disable
 
-    env_file: ./.env
+    env_file: ../.env
 
     # Overrides default command so things don't shut down after the process ends.
-    command: sleep infinity
+    entrypoint: []
+    command: ["sleep", "infinity"]
 
     working_dir: /workspace
 

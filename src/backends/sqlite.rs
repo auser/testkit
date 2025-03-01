@@ -28,6 +28,7 @@ impl Connection for SqliteConnection {
     }
 
     async fn execute(&mut self, sql: &str) -> Result<()> {
+        // For SQLite, we can use the SQLx query builder directly
         sqlx::query(sql)
             .execute(&self.pool)
             .await
@@ -53,6 +54,17 @@ impl SqliteBackend {
         Ok(Self {
             base_path: PathBuf::from(base_path),
         })
+    }
+
+    /// Create a new SqliteBackend with the default base path in /tmp
+    pub async fn new_with_default_path() -> Result<Self> {
+        Self::new("/tmp/testkit").await
+    }
+
+    /// For backward compatibility with tests
+    #[doc(hidden)]
+    pub async fn new_() -> Result<Self> {
+        Self::new_with_default_path().await
     }
 
     fn get_db_path(&self, name: &DatabaseName) -> PathBuf {
@@ -84,15 +96,13 @@ impl DatabaseBackend for SqliteBackend {
 
         // Ensure parent directory exists
         if let Some(parent) = db_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                DbError::new(format!("Failed to create directory: {}", e))
-            })?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| DbError::new(format!("Failed to create directory: {}", e)))?;
         }
 
         if db_path.exists() {
-            std::fs::remove_file(&db_path).map_err(|e| {
-                DbError::new(format!("Failed to remove database: {}", e))
-            })?;
+            std::fs::remove_file(&db_path)
+                .map_err(|e| DbError::new(format!("Failed to remove database: {}", e)))?;
         }
 
         // Create empty database file
@@ -117,9 +127,8 @@ impl DatabaseBackend for SqliteBackend {
     async fn drop_database(&self, name: &DatabaseName) -> Result<()> {
         let db_path = self.get_db_path(name);
         if db_path.exists() {
-            std::fs::remove_file(&db_path).map_err(|e| {
-                DbError::new(format!("Failed to remove database: {}", e))
-            })?;
+            std::fs::remove_file(&db_path)
+                .map_err(|e| DbError::new(format!("Failed to remove database: {}", e)))?;
         }
         Ok(())
     }

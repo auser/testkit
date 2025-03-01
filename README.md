@@ -14,6 +14,7 @@ A Rust library for managing test databases with support for PostgreSQL, MySQL, a
 - Async/await support
 - Transaction management
 - Migration support
+- **Built-in logging with tracing** - all operations are logged for easy debugging
 - **No need to specify return types** - the library handles type inference for you
 - **Automatic user creation and privilege management** - the library creates test users with appropriate permissions
 
@@ -43,6 +44,9 @@ use db_testkit::with_test_db;
 
 #[tokio::test]
 async fn test_with_postgres() {
+    // Initialize tracing for logs (optional but recommended)
+    tracing_subscriber::fmt::init();
+    
     with_test_db(|db| async move {
         // Setup database with admin permissions
         db.setup(|mut conn| async move {
@@ -131,8 +135,7 @@ async fn test_with_sqlite() {
             
             // Insert test data
             conn.execute(
-                "INSERT INTO users (email, name) VALUES (?, ?)",
-                &[&test_user, "Test User"],
+                "INSERT INTO users (email, name) VALUES ('" + &test_user + "', 'Test User')"
             ).await?;
             
             Ok(())
@@ -159,6 +162,39 @@ DATABASE_URL=mysql://user:password@localhost:3306/mysql
 # For SQLite
 DATABASE_URL=/path/to/sqlite/databases
 ```
+
+## Logging
+
+The library uses the `tracing` crate for logging. Logging is enabled by default, with no feature flag required. To see logs in your tests, initialize the tracing subscriber at the beginning of your test:
+
+```rust
+#[tokio::test]
+async fn my_test() {
+    // Set the log level if not already set
+    if std::env::var("RUST_LOG").is_err() {
+        std::env::set_var("RUST_LOG", "db_testkit=debug,info");
+    }
+    
+    // Initialize the subscriber
+    let _ = tracing_subscriber::fmt::try_init();
+    
+    // Your test code...
+}
+```
+
+You can customize the log level by setting the `RUST_LOG` environment variable:
+
+```bash
+RUST_LOG=db_testkit=debug,postgres=info cargo test
+```
+
+The library logs important events such as:
+- Database creation and dropping
+- Connection acquisition and release
+- SQL statement execution
+- Error conditions and cleanup operations
+
+This makes debugging database tests much easier.
 
 ## Using with_test_db in External Crates
 

@@ -46,22 +46,28 @@ pub fn get_mysql_url() -> Result<String> {
 
     // First try to get from environment
     if let Ok(url) = std::env::var("MYSQL_URL") {
+        tracing::info!("Using MySQL URL from environment: {}", url);
         return Ok(url);
     }
 
-    // Default URLs for different environments - always use root/superuser for tests
+    // Try with Docker hostnames first - without database suffix which can cause connection issues
     let urls = [
-        "mysql://testuser:testpassword@mysql:3306", // Docker Compose
-        "mysql://root:root@localhost:3306",         // Local development common default
-        "mysql://root:@localhost:3306",             // CI environment with no password
-        "mysql://admin:password@localhost:3306",    // Alternative admin user
+        "mysql://root@mysql:3306",  // Docker, no password - THIS WORKS!
+        "mysql://root:@mysql:3306", // Docker, empty password
+        "mysql://root:@mysql:3306?ssl-mode=DISABLED", // Docker with SSL disabled
+        "mysql://root@localhost:3306", // Local with no password
+        "mysql://root@localhost:3336", // Local via port mapping
+        "mysql://root@host.docker.internal:3336", // Docker host machine
     ];
 
-    // Log which URL we're trying to use
-    tracing::debug!("Using MySQL URL: {}", urls[0]);
+    // Log which URLs we're going to try
+    tracing::info!("Will try the following MySQL URLs:");
+    for (i, url) in urls.iter().enumerate() {
+        tracing::info!("  {}: {}", i + 1, url);
+    }
 
-    // In a real implementation, we would test each connection
-    // For now, return the first URL for simplicity
+    // Return the first URL - the actual connection testing happens in the MySqlBackend
+    tracing::info!("Using MySQL URL: {}", urls[0]);
     Ok(urls[0].to_string())
 }
 

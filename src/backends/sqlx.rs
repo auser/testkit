@@ -41,9 +41,10 @@ impl Connection for SqlxPostgresConnection {
 
         // Execute each statement separately
         for stmt in statements {
-            sqlx::query(stmt).execute(&self.pool).await.map_err(|e| {
-                DbError::new(format!("Failed to execute '{}': {}", stmt, e))
-            })?;
+            sqlx::query(stmt)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| DbError::new(format!("Failed to execute '{}': {}", stmt, e)))?;
         }
         Ok(())
     }
@@ -66,6 +67,8 @@ impl SqlxPostgresConnection {
 
     pub async fn connect(&self) -> Result<PgPool> {
         PgPoolOptions::new()
+            .max_connections(5)
+            .acquire_timeout(std::time::Duration::from_secs(5))
             .connect(self.connection_string.as_str())
             .await
             .map_err(|e| DbError::new(e.to_string()))
@@ -552,7 +555,7 @@ mod tests {
         let backend = SqlxPostgresBackend::new(&get_sqlx_postgres_url().unwrap()).unwrap();
 
         // Create a test database
-        let db_name = DatabaseName::new("sqlx_test");
+        let db_name = DatabaseName::new(Some("sqlx_test"));
         backend.create_database(&db_name).await.unwrap();
 
         // Create a pool
@@ -638,3 +641,10 @@ mod tests {
         // Clean up
     }
 }
+
+#[cfg(feature = "sqlx-mysql")]
+pub type SqlxMySqlBackend = SqlxPostgresBackend;
+
+// Alias for backward compatibility with tests
+#[cfg(feature = "sqlx-sqlite")]
+pub type SqlxSqliteBackend = crate::backends::sqlite::SqliteBackend;

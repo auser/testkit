@@ -1,46 +1,50 @@
 #[cfg(all(feature = "sqlx-backend", not(feature = "postgres")))]
 use db_testkit::prelude::*;
+#[cfg(all(feature = "sqlx-backend", not(feature = "postgres")))]
+use tracing::info;
 
 #[cfg(all(feature = "sqlx-backend", not(feature = "postgres")))]
 #[tokio::main]
 async fn main() -> std::result::Result<(), db_testkit::DbError> {
     use sqlx::Row;
 
-    println!("Running the example with SQLx PostgreSQL backend...");
+    // Initialize logging
+    if std::env::var("RUST_LOG").is_err() {
+        std::env::set_var("RUST_LOG", "db_testkit=debug,sqlx=info");
+    }
+    let _ = tracing_subscriber::fmt::try_init();
+
+    info!("Running the example with SQLx PostgreSQL backend...");
 
     // Use the macro without explicit type annotations
     with_test_db!(
         "postgres://postgres:postgres@postgres:5432/postgres",
         |db| async {
-            println!("Created test database: {}", db.name());
+            info!("Created test database: {}", db.name());
 
-            // Create a test database from the template
-            let test_db = db.create_test_database().await.unwrap();
-            println!("Created test database");
-
-            // Create a table
+            // Create a table - use db directly as it's already a TestDatabase
             sqlx::query("CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT, email TEXT)")
-                .execute(test_db.pool.sqlx_pool())
+                .execute(db.pool.sqlx_pool())
                 .await
                 .unwrap();
 
-            println!("Created table");
+            info!("Created table");
 
             // Insert data
             sqlx::query("INSERT INTO users (name, email) VALUES ('John Doe', 'john@example.com')")
-                .execute(test_db.pool.sqlx_pool())
+                .execute(db.pool.sqlx_pool())
                 .await
                 .unwrap();
 
-            println!("Inserted data");
+            info!("Inserted data");
 
             // Query data
             let row = sqlx::query("SELECT name, email FROM users WHERE name = 'John Doe'")
-                .fetch_one(test_db.pool.sqlx_pool())
+                .fetch_one(db.pool.sqlx_pool())
                 .await
                 .unwrap();
 
-            println!(
+            info!(
                 "Name: {}, Email: {}",
                 row.get::<String, _>("name"),
                 row.get::<String, _>("email")
@@ -58,5 +62,6 @@ async fn main() -> std::result::Result<(), db_testkit::DbError> {
 
 #[cfg(not(all(feature = "sqlx-backend", not(feature = "postgres"))))]
 fn main() {
+    // Use println here since tracing may not be initialized in this case
     println!("This example requires the sqlx-backend feature but not the postgres feature");
 }

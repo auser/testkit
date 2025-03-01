@@ -4,7 +4,7 @@ pub mod mysql;
 pub mod postgres;
 #[cfg(feature = "sqlx-sqlite")]
 pub mod sqlite;
-#[cfg(feature = "sqlx-postgres")]
+#[cfg(any(feature = "sqlx-postgres", feature = "sqlx-mysql"))]
 pub mod sqlx;
 
 #[cfg(feature = "mysql")]
@@ -15,3 +15,9 @@ pub use postgres::PostgresBackend;
 pub use sqlite::SqliteBackend;
 #[cfg(feature = "sqlx-postgres")]
 pub use sqlx::SqlxPostgresBackend;
+
+// Aliases for backward compatibility with tests
+#[cfg(feature = "sqlx-sqlite")]
+pub use sqlite::SqliteBackend as SqlxSqliteBackend;
+#[cfg(feature = "sqlx-mysql")]
+pub use sqlx::SqlxMySqlBackend;

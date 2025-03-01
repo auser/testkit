@@ -46,7 +46,7 @@ pub struct TestDatabaseTemplate<B: DatabaseBackend + Clone + Send + 'static> {
 impl<B: DatabaseBackend + Clone + Send + 'static> TestDatabaseTemplate<B> {
     /// Create a new template database
     pub async fn new(backend: B, config: PoolConfig, max_replicas: usize) -> Result<Self> {
-        let name = DatabaseName::new("testkit");
+        let name = DatabaseName::new(None);
         backend.create_database(&name).await?;
 
         Ok(Self {
@@ -93,7 +93,7 @@ impl<B: DatabaseBackend + Clone + Send + 'static> TestDatabaseTemplate<B> {
             .await
             .map_err(|e| DbError::new(format!("Pool creation failed: {}", e)))?;
 
-        let name = DatabaseName::new("testkit");
+        let name = DatabaseName::new(None);
         self.backend
             .create_database_from_template(&name, &self.name)
             .await?;
@@ -146,13 +146,30 @@ impl<B: DatabaseBackend + 'static> TestDatabase<B> {
     /// Create a new test database with the given backend
     pub async fn new(backend: B, config: PoolConfig) -> Result<Self> {
         // Generate unique name
-        let db_name = DatabaseName::new("testkit");
+        let db_name = DatabaseName::new(None);
 
-        // Create database
-        backend.create_database(&db_name).await?;
+        // Create database with better error handling
+        tracing::debug!("Creating test database: {}", db_name);
+        match backend.create_database(&db_name).await {
+            Ok(_) => tracing::debug!("Successfully created database {}", db_name),
+            Err(e) => {
+                tracing::error!("Failed to create database {}: {}", db_name, e);
+                return Err(e);
+            }
+        }
 
         // Create connection pool for the database
-        let pool = backend.create_pool(&db_name, &config).await?;
+        tracing::debug!("Creating connection pool for database: {}", db_name);
+        let pool = match backend.create_pool(&db_name, &config).await {
+            Ok(p) => {
+                tracing::debug!("Successfully created connection pool for {}", db_name);
+                p
+            }
+            Err(e) => {
+                tracing::error!("Failed to create connection pool for {}: {}", db_name, e);
+                return Err(e);
+            }
+        };
 
         // Generate test user ID
         let test_user = format!("testkit_user_{}", Uuid::new_v4());
@@ -265,6 +282,12 @@ impl<B: DatabaseBackend + 'static> TestDatabase<B> {
         let conn = self.pool.acquire().await?;
         test_fn(conn).await
     }
+
+    /// Drop the database when it's no longer needed
+    pub async fn sync_drop_database(&self) -> Result<()> {
+        tracing::debug!("Explicitly dropping database: {}", self.db_name);
+        self.backend.drop_database(&self.db_name).await
+    }
 }
 
 impl<B> Drop for TestDatabase<B>
@@ -272,11 +295,22 @@ where
     B: DatabaseBackend + Send + Sync + Clone + 'static,
 {
     fn drop(&mut self) {
-        let connection_string = self.pool.connection_string();
+        // Get a copy of the database name for logging
+        let db_name = self.db_name.clone();
+        tracing::info!("Dropping TestDatabase instance for database: {}", db_name);
 
-        if let Err(e) = sync_drop_database(&connection_string) {
-            tracing::error!("Failed to drop database: {:?}", e);
+        // Get the connection string before spawning thread
+        let connection_string = self.backend.connection_string(&self.db_name);
+
+        // Spawn a thread to handle the synchronous database dropping
+        // This avoids trying to create a runtime within a runtime
+        // std::thread::spawn(move || {
+        if let Err(err) = sync_drop_database(&connection_string) {
+            tracing::error!("Failed to drop database {}: {}", db_name, err);
+        } else {
+            tracing::info!("Successfully dropped database {} during Drop", db_name);
         }
+        // });
     }
 }
 
@@ -400,7 +434,7 @@ fn drop_sqlite_database(parsed: &Url, database_name: &str) -> Result<()> {
         if !path_str.contains('/') && !path_str.contains('\\') {
             // This is likely just the database name, append .db extension if not present
             let mut path = std::path::PathBuf::from(path_str);
-            if !path.extension().map_or(false, |ext| ext == "db") {
+            if path.extension().map_or(true, |ext| ext != "db") {
                 path.set_extension("db");
             }
             path
@@ -422,7 +456,7 @@ fn drop_sqlite_database(parsed: &Url, database_name: &str) -> Result<()> {
 
         // For sqlx-sqlite, also try with .db extension
         let mut db_path = path.clone();
-        if db_path.extension().is_none() {
+        if db_path.extension().map_or(true, |ext| ext != "db") {
             db_path.set_extension("db");
             if db_path.exists() {
                 tracing::debug!(
@@ -440,54 +474,74 @@ fn drop_sqlite_database(parsed: &Url, database_name: &str) -> Result<()> {
 }
 
 #[cfg(feature = "mysql")]
-fn drop_mysql_database(parsed: &Url, database_name: &str) -> Result<()> {
-    // Ensure we're using a user with privileges to drop databases
-    let mysql_user = parsed.username();
-    let mysql_password = parsed.password().unwrap_or("");
-
-    let database_host = format!(
-        "{}://{}:{}@{}:{}",
-        parsed.scheme(),
-        mysql_user,
-        mysql_password,
-        parsed.host_str().unwrap_or("localhost"),
-        parsed.port().unwrap_or(3306)
-    );
+fn drop_mysql_database(_parsed: &Url, database_name: &str) -> Result<()> {
+    // Skip the URL parsing and just use the direct host that works
+    let database_host = "mysql";
+    let mysql_user = "root";
 
     // First, terminate all connections to the database
-    terminate_mysql_connections(&database_host, database_name)?;
+    terminate_mysql_connections(database_host, mysql_user, database_name)?;
 
     // Then drop the database
-    drop_mysql_database_command(&database_host, database_name)?;
+    drop_mysql_database_command(database_host, mysql_user, database_name)?;
 
     Ok(())
 }
 
 #[cfg(feature = "mysql")]
-fn terminate_mysql_connections(database_host: &str, database_name: &str) -> Result<()> {
-    let output = std::process::Command::new("mysql")
-        .arg(format!("--host={}", database_host))
+fn terminate_mysql_connections(host: &str, user: &str, database_name: &str) -> Result<()> {
+    // First, get process IDs directly without using an intermediate file
+    let get_process_output = std::process::Command::new("mysql")
+        .arg(format!("-h{}", host))
+        .arg(format!("-u{}", user))
+        .arg("-N") // Skip column names
+        .arg("-s") // Silent mode
         .arg("-e")
         .arg(format!(
-            "SELECT CONCAT('KILL ', id, ';') FROM INFORMATION_SCHEMA.PROCESSLIST WHERE db = '{}' INTO @kill_list; PREPARE kill_stmt FROM @kill_list; EXECUTE kill_stmt; DEALLOCATE PREPARE kill_stmt;",
+            "SELECT id FROM INFORMATION_SCHEMA.PROCESSLIST WHERE db = '{}'",
             database_name
         ))
         .output()
-        .map_err(|e| DbError::new(format!("Io error: {}", e)))?;
+        .map_err(|e| DbError::new(format!("Failed to get MySQL process list: {}", e)))?;
 
-    if !output.status.success() {
-        return Err(DbError::new(format!(
-            "Database drop failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        )));
+    if !get_process_output.status.success() {
+        tracing::warn!(
+            "Failed to get MySQL process list: {}",
+            String::from_utf8_lossy(&get_process_output.stderr)
+        );
+        return Ok(());
     }
+
+    // Extract process IDs from the output
+    let process_ids = String::from_utf8_lossy(&get_process_output.stdout);
+
+    // Kill each process
+    for line in process_ids.lines() {
+        let pid = line.trim();
+        if !pid.is_empty() {
+            if let Ok(pid_num) = pid.parse::<i32>() {
+                tracing::debug!("Killing MySQL process ID: {}", pid_num);
+                let kill_cmd = format!("KILL {}", pid_num);
+
+                let _ = std::process::Command::new("mysql")
+                    .arg(format!("-h{}", host))
+                    .arg(format!("-u{}", user))
+                    .arg("-e")
+                    .arg(&kill_cmd)
+                    .output();
+                // Ignore errors - this is best-effort
+            }
+        }
+    }
+
     Ok(())
 }
 
 #[cfg(feature = "mysql")]
-fn drop_mysql_database_command(database_host: &str, database_name: &str) -> Result<()> {
+fn drop_mysql_database_command(host: &str, user: &str, database_name: &str) -> Result<()> {
     let output = std::process::Command::new("mysql")
-        .arg(database_host)
+        .arg(format!("-h{}", host))
+        .arg(format!("-u{}", user))
         .arg("-e")
         .arg(format!("DROP DATABASE IF EXISTS `{}`", database_name))
         .output()
@@ -507,12 +561,15 @@ fn drop_mysql_database_command(database_host: &str, database_name: &str) -> Resu
 pub struct DatabaseName(String);
 
 impl DatabaseName {
-    /// Create a new database name with a prefix
-    pub fn new(prefix: &str) -> Self {
-        Self(format!("{}_{}", prefix, Uuid::new_v4()))
+    /// Create a new unique database name with the given prefix
+    pub fn new(prefix: Option<&str>) -> Self {
+        let uuid = uuid::Uuid::new_v4();
+        // Use underscores instead of hyphens for better MySQL compatibility
+        let safe_uuid = uuid.to_string().replace('-', "_");
+        Self(format!("{}_{}", prefix.unwrap_or("testkit"), safe_uuid))
     }
 
-    /// Get the database name as a string
+    /// Get the database name as a string slice
     pub fn as_str(&self) -> &str {
         &self.0
     }

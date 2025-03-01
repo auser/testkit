@@ -1,21 +1,23 @@
 #[cfg(feature = "sqlx-sqlite")]
 use db_testkit::prelude::*;
+#[cfg(feature = "sqlx-sqlite")]
+use tracing::info;
 
 #[cfg(feature = "sqlx-sqlite")]
 #[tokio::main]
 async fn main() -> Result<()> {
     // Setup logging
-    std::env::set_var("RUST_LOG", "sqlx=debug");
+    std::env::set_var("RUST_LOG", "sqlx=debug,db_testkit=info");
     let _ = tracing_subscriber::fmt::try_init();
 
-    println!("Testing the with_test_db! macro with SQLite...");
+    info!("Testing the with_test_db! macro with SQLite...");
 
     // Assign to underscore to avoid unused Future warning
     with_test_db!(|db| async move {
-        println!("Created template database: {}", db.name());
+        info!("Created template database: {}", db.name());
 
         // Use the db directly - it's already a TestDatabase instance
-        println!("Using test database: {}", db.name());
+        info!("Using test database: {}", db.name());
 
         // Get a connection
         let mut conn = db.connection().await.unwrap();
@@ -25,25 +27,26 @@ async fn main() -> Result<()> {
             .await
             .unwrap();
 
-        println!("Created table");
+        info!("Created table");
 
         // Insert some data with explicit ID
         conn.execute("INSERT INTO test_items (id, name) VALUES (1, 'Test Item 1')")
             .await
             .unwrap();
 
-        println!("Inserted data");
+        info!("Inserted data");
 
         // Just return Ok(()) and let the macro handle type inference
         Ok(())
     })
     .await?;
 
-    println!("SQLite macro test completed!");
+    info!("SQLite macro test completed!");
     Ok(())
 }
 
 #[cfg(not(feature = "sqlx-sqlite"))]
 fn main() {
+    // Use println here since tracing may not be initialized in this case
     println!("This example requires the sqlx-sqlite feature");
 }

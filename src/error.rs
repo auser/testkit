@@ -1,6 +1,5 @@
 use std::error::Error as StdError;
 use std::fmt::{Display, Formatter};
-/// Simple error type that wraps any error as a string
 
 /// Type alias for Result with DbError as the error type
 pub type Result<T = ()> = std::result::Result<T, DbError>;

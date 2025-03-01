@@ -15,7 +15,7 @@
   "features": {
     "ghcr.io/devcontainers/features/node:1": {},
     "ghcr.io/devcontainers/features/rust:1": {},
-    "devwasm.azurecr.io/dev-wasm/dev-wasm-feature/rust-wasi:0": {}
+    // "devwasm.azurecr.io/dev-wasm/dev-wasm-feature/rust-wasi:0": {}
   },
   // Set *default* container specific settings.json values on container create.
   "customizations": {
@@ -62,17 +62,7 @@
     "HOST_PROJECT_PATH": "${localWorkspaceFolder}",
     "PATH": "/home/vscode/bin:/usr/local/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/workspace/scripts:/usr/local/bin:/usr/bin:/bin:/home/vscode/bin:/usr/local/cargo/bin:$PATH",
     "HOSTNAME": "main.cluster.local",
-    "SYNC_LOCALHOST_KUBECONFIG": "true",
-    "MYSQL_USER": "${localEnv:MYSQL_USER}",
-    "MYSQL_PASSWORD": "${localEnv:MYSQL_PASSWORD}",
-    "MYSQL_DATABASE": "${localEnv:MYSQL_DATABASE}",
-    "MYSQL_ROOT_PASSWORD": "${localEnv:MYSQL_ROOT_PASSWORD}",
-    "POSTGRES_USER": "${localEnv:POSTGRES_USER}",
-    "POSTGRES_PASSWORD": "${localEnv:POSTGRES_PASSWORD}",
-    "POSTGRES_DATABASE": "${localEnv:POSTGRES_DATABASE}",
-    "POSTGRES_PORT": "${localEnv:POSTGRES_PORT}",
-    "MYSQL_HOST": "${localEnv:MYSQL_HOST}",
-    "POSTGRES_HOST": "${localEnv:POSTGRES_HOST}"
+    "SYNC_LOCALHOST_KUBECONFIG": "true"
   },
   "remoteUser": "vscode"
 }

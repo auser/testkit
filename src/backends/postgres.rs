@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use tokio_postgres::{Client, Config, NoTls};
+use tracing::error;
 use url::Url;
 
 use crate::{
@@ -45,7 +46,10 @@ impl PostgresConnection {
 
 #[async_trait]
 impl Connection for PostgresConnection {
-    type Transaction<'conn> = tokio_postgres::Transaction<'conn> where Self: 'conn;
+    type Transaction<'conn>
+        = tokio_postgres::Transaction<'conn>
+    where
+        Self: 'conn;
 
     async fn is_valid(&self) -> bool {
         self.client.simple_query("SELECT 1").await.is_ok()
@@ -69,11 +73,15 @@ impl Connection for PostgresConnection {
 
         // Execute each statement separately
         for stmt in statements {
+            // Log the SQL statement being executed
+            tracing::debug!("Executing SQL: {}", stmt);
+
             self.client
                 .execute(stmt, &[])
                 .await
                 .map_err(|e| DbError::new(format!("Failed to execute '{}': {}", stmt, e)))?;
         }
+
         Ok(())
     }
 
@@ -143,7 +151,7 @@ impl PostgresBackend {
         // Spawn the connection handling task
         tokio::spawn(async move {
             if let Err(e) = connection.await {
-                eprintln!("connection error: {}", e);
+                error!("connection error: {}", e);
             }
         });
 
@@ -180,7 +188,7 @@ impl PostgresBackend {
         // Spawn the connection handling task
         tokio::spawn(async move {
             if let Err(e) = connection.await {
-                eprintln!("connection error: {}", e);
+                error!("connection error: {}", e);
             }
         });
 
@@ -263,7 +271,7 @@ impl DatabaseBackend for PostgresBackend {
         // Spawn the connection handling task
         tokio::spawn(async move {
             if let Err(e) = connection.await {
-                eprintln!("connection error: {}", e);
+                error!("connection error: {}", e);
             }
         });
 
@@ -280,7 +288,7 @@ impl DatabaseBackend for PostgresBackend {
         // Spawn the connection handling task
         tokio::spawn(async move {
             if let Err(e) = connection.await {
-                eprintln!("connection error: {}", e);
+                error!("connection error: {}", e);
             }
         });
 
@@ -303,7 +311,7 @@ impl DatabaseBackend for PostgresBackend {
         // Spawn the connection handling task
         tokio::spawn(async move {
             if let Err(e) = connection.await {
-                eprintln!("connection error: {}", e);
+                error!("connection error: {}", e);
             }
         });
 
@@ -325,7 +333,7 @@ impl DatabaseBackend for PostgresBackend {
         // Spawn the connection handling task
         tokio::spawn(async move {
             if let Err(e) = connection.await {
-                eprintln!("connection error: {}", e);
+                error!("connection error: {}", e);
             }
         });
 
@@ -342,7 +350,7 @@ impl DatabaseBackend for PostgresBackend {
         // Spawn the connection handling task
         tokio::spawn(async move {
             if let Err(e) = connection.await {
-                eprintln!("connection error: {}", e);
+                error!("connection error: {}", e);
             }
         });
 
@@ -377,7 +385,7 @@ impl DatabaseBackend for PostgresBackend {
         // Spawn the connection handling task
         tokio::spawn(async move {
             if let Err(e) = connection.await {
-                eprintln!("connection error: {}", e);
+                error!("connection error: {}", e);
             }
         });
 
@@ -409,7 +417,7 @@ impl DatabaseBackend for PostgresBackend {
         // Spawn the connection handling task
         tokio::spawn(async move {
             if let Err(e) = connection.await {
-                eprintln!("connection error: {}", e);
+                error!("connection error: {}", e);
             }
         });
 
@@ -449,7 +457,7 @@ impl DatabaseBackend for PostgresBackend {
         // Spawn the connection handling task
         tokio::spawn(async move {
             if let Err(e) = connection.await {
-                eprintln!("connection error: {}", e);
+                error!("connection error: {}", e);
             }
         });
 
@@ -530,7 +538,7 @@ impl DatabasePool for PostgresPool {
         // Spawn the connection handling task
         tokio::spawn(async move {
             if let Err(e) = connection.await {
-                eprintln!("connection error: {}", e);
+                error!("connection error: {}", e);
             }
         });
 

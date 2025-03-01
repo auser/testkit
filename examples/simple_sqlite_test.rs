@@ -1,14 +1,16 @@
 #[cfg(feature = "sqlx-sqlite")]
 use db_testkit::prelude::*;
+#[cfg(feature = "sqlx-sqlite")]
+use tracing::info;
 
 #[cfg(feature = "sqlx-sqlite")]
 #[tokio::main]
 async fn main() -> std::result::Result<(), db_testkit::DbError> {
     // Setup logging
-    std::env::set_var("RUST_LOG", "sqlx=debug");
+    std::env::set_var("RUST_LOG", "sqlx=debug,db_testkit=info");
     let _ = tracing_subscriber::fmt::try_init();
 
-    println!("Starting SQLite test...");
+    info!("Starting SQLite test...");
 
     // Create a SQLite backend
     let backend = SqliteBackend::new("/tmp/simple_sqlite_test")
@@ -20,14 +22,14 @@ async fn main() -> std::result::Result<(), db_testkit::DbError> {
         .await
         .expect("Failed to create template");
 
-    println!("Created template database: {}", template.name());
+    info!("Created template database: {}", template.name());
 
     // Create a test database from the template
     let test_db = template
         .create_test_database()
         .await
         .expect("Failed to create test database");
-    println!("Created test database: {}", test_db.db_name);
+    info!("Created test database: {}", test_db.db_name);
 
     // Get a connection
     let mut conn = test_db
@@ -41,20 +43,21 @@ async fn main() -> std::result::Result<(), db_testkit::DbError> {
         .await
         .expect("Failed to create table");
 
-    println!("Created table");
+    info!("Created table");
 
     // Insert some data
     conn.execute("INSERT INTO test_items (name) VALUES ('Test Item 1')")
         .await
         .expect("Failed to insert data");
 
-    println!("Inserted data");
+    info!("Inserted data");
 
-    println!("SQLite test completed successfully!");
+    info!("SQLite test completed successfully!");
     Ok(())
 }
 
 #[cfg(not(feature = "sqlx-sqlite"))]
 fn main() {
+    // Use println here since tracing may not be initialized in this case
     println!("This example requires the sqlx-sqlite feature");
 }

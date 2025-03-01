@@ -126,10 +126,10 @@ macro_rules! with_test_db {
                     // Run the future and handle errors
                     let test_result = future.await;
                     if let Err(e) = test_result {
-                        eprintln!("Test failed: {:?}", e);
+                        ::tracing::error!("Test failed: {:?}", e);
                         // Explicitly drop the database before panicking
                         if let Err(drop_err) = backend_copy.drop_database(&db_name).await {
-                            eprintln!("Warning: failed to drop database: {}", drop_err);
+                            ::tracing::warn!("Warning: failed to drop database: {}", drop_err);
                         }
                         panic!("Test failed: {:?}", e);
                     }
@@ -139,9 +139,9 @@ macro_rules! with_test_db {
                 }
                 Err(e) => {
                     // Explicitly drop the database before re-panicking
-                    eprintln!("Test panicked, ensuring database cleanup");
+                    ::tracing::error!("Test panicked, ensuring database cleanup");
                     if let Err(drop_err) = backend_copy.drop_database(&db_name).await {
-                        eprintln!(
+                        ::tracing::error!(
                             "Warning: failed to drop database during panic recovery: {}",
                             drop_err
                         );
@@ -264,20 +264,20 @@ macro_rules! with_test_db {
             match setup_result {
                 Ok(future) => {
                     if let Err(e) = future.await {
-                        eprintln!("Setup failed: {:?}", e);
+                        error!("Setup failed: {:?}", e);
                         // Explicitly drop the template database
                         if let Err(drop_err) = template_backend.drop_database(&template_name).await
                         {
-                            eprintln!("Warning: failed to drop template database: {}", drop_err);
+                            warn!("Warning: failed to drop template database: {}", drop_err);
                         }
                         panic!("Setup failed: {:?}", e);
                     }
                 }
                 Err(e) => {
                     // Explicitly drop the template database
-                    eprintln!("Setup panicked, ensuring database cleanup");
+                    error!("Setup panicked, ensuring database cleanup");
                     if let Err(drop_err) = template_backend.drop_database(&template_name).await {
-                        eprintln!(
+                        error!(
                             "Warning: failed to drop template database during panic recovery: {}",
                             drop_err
                         );
@@ -300,19 +300,19 @@ macro_rules! with_test_db {
             match test_result {
                 Ok(future) => {
                     if let Err(e) = future.await {
-                        eprintln!("Test failed: {:?}", e);
+                        error!("Test failed: {:?}", e);
                         // Explicitly drop the database
                         if let Err(drop_err) = backend_copy.drop_database(&db_name).await {
-                            eprintln!("Warning: failed to drop database: {}", drop_err);
+                            warn!("Warning: failed to drop database: {}", drop_err);
                         }
                         panic!("Test failed: {:?}", e);
                     }
                 }
                 Err(e) => {
                     // Explicitly drop the database
-                    eprintln!("Test panicked, ensuring database cleanup");
+                    error!("Test panicked, ensuring database cleanup");
                     if let Err(drop_err) = backend_copy.drop_database(&db_name).await {
-                        eprintln!(
+                        error!(
                             "Warning: failed to drop database during panic recovery: {}",
                             drop_err
                         );
@@ -391,10 +391,10 @@ macro_rules! with_test_db {
                     // Run the future and handle errors
                     let test_result = future.await;
                     if let Err(e) = test_result {
-                        eprintln!("Test failed: {:?}", e);
+                        error!("Test failed: {:?}", e);
                         // Explicitly drop the database before panicking
                         if let Err(drop_err) = backend_copy.drop_database(&db_name).await {
-                            eprintln!("Warning: failed to drop database: {}", drop_err);
+                            warn!("Warning: failed to drop database: {}", drop_err);
                         }
                         panic!("Test failed: {:?}", e);
                     }
@@ -404,9 +404,9 @@ macro_rules! with_test_db {
                 }
                 Err(e) => {
                     // Explicitly drop the database before re-panicking
-                    eprintln!("Test panicked, ensuring database cleanup");
+                    error!("Test panicked, ensuring database cleanup");
                     if let Err(drop_err) = backend_copy.drop_database(&db_name).await {
-                        eprintln!(
+                        error!(
                             "Warning: failed to drop database during panic recovery: {}",
                             drop_err
                         );
@@ -523,20 +523,20 @@ macro_rules! with_test_db {
             match setup_result {
                 Ok(future) => {
                     if let Err(e) = future.await {
-                        eprintln!("Setup failed: {:?}", e);
+                        error!("Setup failed: {:?}", e);
                         // Explicitly drop the template database
                         if let Err(drop_err) = template_backend.drop_database(&template_name).await
                         {
-                            eprintln!("Warning: failed to drop template database: {}", drop_err);
+                            warn!("Warning: failed to drop template database: {}", drop_err);
                         }
                         panic!("Setup failed: {:?}", e);
                     }
                 }
                 Err(e) => {
                     // Explicitly drop the template database
-                    eprintln!("Setup panicked, ensuring database cleanup");
+                    error!("Setup panicked, ensuring database cleanup");
                     if let Err(drop_err) = template_backend.drop_database(&template_name).await {
-                        eprintln!(
+                        error!(
                             "Warning: failed to drop template database during panic recovery: {}",
                             drop_err
                         );
@@ -559,19 +559,19 @@ macro_rules! with_test_db {
             match test_result {
                 Ok(future) => {
                     if let Err(e) = future.await {
-                        eprintln!("Test failed: {:?}", e);
+                        error!("Test failed: {:?}", e);
                         // Explicitly drop the database
                         if let Err(drop_err) = backend_copy.drop_database(&db_name).await {
-                            eprintln!("Warning: failed to drop database: {}", drop_err);
+                            warn!("Warning: failed to drop database: {}", drop_err);
                         }
                         panic!("Test failed: {:?}", e);
                     }
                 }
                 Err(e) => {
                     // Explicitly drop the database
-                    eprintln!("Test panicked, ensuring database cleanup");
+                    error!("Test panicked, ensuring database cleanup");
                     if let Err(drop_err) = backend_copy.drop_database(&db_name).await {
-                        eprintln!(
+                        error!(
                             "Warning: failed to drop database during panic recovery: {}",
                             drop_err
                         );
@@ -734,13 +734,13 @@ mod tests {
                     )
                     .await
                     .unwrap();
-                    println!("Created table with Postgres backend");
+                    tracing::info!("Created table with Postgres backend");
                 }
 
                 #[cfg(all(feature = "sqlx-backend", not(feature = "postgres")))]
                 {
                     // For SqlxPostgresBackend, use DatabasePool trait to acquire connection
-                    use crate::backend::{DatabaseBackend, DatabasePool};
+                    use crate::backend::DatabasePool;
                     let mut conn = test_db.pool.acquire().await.unwrap();
 
                     let res = sqlx::query!(
@@ -748,7 +748,7 @@ mod tests {
                     )
                     .execute(&mut conn)
                     .await;
-                    println!("Created table with SQLx backend: {:?}", res);
+                    tracing::info!("Created table with SQLx backend: {:?}", res);
                 }
 
                 Ok(()) as crate::error::Result<()>
