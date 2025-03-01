@@ -642,9 +642,6 @@ mod tests {
     }
 }
 
-#[cfg(feature = "sqlx-mysql")]
-pub type SqlxMySqlBackend = SqlxPostgresBackend;
-
 // Alias for backward compatibility with tests
 #[cfg(feature = "sqlx-sqlite")]
 pub type SqlxSqliteBackend = crate::backends::sqlite::SqliteBackend;

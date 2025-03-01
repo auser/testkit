@@ -1,4 +1,8 @@
 use db_testkit::with_test_db;
+use tracing::info;
+
+#[cfg(any(feature = "postgres", feature = "sqlx-postgres"))]
+use sqlx::Executor;
 
 #[tokio::main]
 async fn main() {
@@ -13,24 +17,25 @@ async fn main() {
 }
 
 /// Example of using the function-based API for database testing
+#[cfg(any(feature = "postgres", feature = "sqlx-postgres"))]
 async fn test_with_postgres() {
     with_test_db!(|db| async move {
         // Setup database
         db.setup(|mut conn| async move {
-            conn.execute(
+            sqlx::query(
                 "CREATE TABLE users (
                     id SERIAL PRIMARY KEY,
                     email TEXT NOT NULL,
                     name TEXT NOT NULL
                 )",
             )
+            .execute(&conn)
             .await?;
 
             // Insert a test user
-            conn.execute(
-                "INSERT INTO users (email, name) VALUES ('test@example.com', 'Test User')",
-            )
-            .await?;
+            sqlx::query("INSERT INTO users (email, name) VALUES ('test@example.com', 'Test User')")
+                .execute(&conn)
+                .await?;
 
             Ok(())
         })
@@ -39,10 +44,11 @@ async fn test_with_postgres() {
         // Execute tests
         db.test(|mut conn| async move {
             // Verify we can query the data
-            conn.execute("SELECT * FROM users").await?;
+            sqlx::query("SELECT * FROM users").execute(&conn).await?;
 
             // Run an additional test query
-            conn.execute("SELECT id, email, name FROM users WHERE email = 'test@example.com'")
+            sqlx::query("SELECT id, email, name FROM users WHERE email = 'test@example.com'")
+                .execute(&conn)
                 .await?;
 
             info!("Test completed successfully!");
@@ -52,4 +58,10 @@ async fn test_with_postgres() {
 
         Ok(())
     });
+}
+
+// Add a placeholder implementation for when features are not enabled
+#[cfg(not(any(feature = "postgres", feature = "sqlx-postgres")))]
+async fn test_with_postgres() {
+    println!("This example requires the 'postgres' or 'sqlx-postgres' feature to be enabled");
 }

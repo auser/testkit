@@ -603,24 +603,24 @@ macro_rules! with_test_db {
 #[cfg(feature = "mysql")]
 #[macro_export]
 macro_rules! with_mysql_test_db {
-    // Version without explicit URL
-    (|$db:ident| $test:expr) => {
-        $crate::with_test_db!("mysql://root:password@mysql:3306/", |$db| $test)
-    };
+    ($f:expr) => {
+        async {
+            // Use more reliable connection string format for MySQL tests
+            let url = option_env!("MYSQL_URL").unwrap_or("mysql://root@mysql:3306?timeout=30&connect_timeout=30&pool_timeout=30&ssl-mode=DISABLED");
+            tracing::info!("Using MySQL URL: {}", url);
 
-    // Version with explicit URL
-    ($url:expr, |$db:ident| $test:expr) => {
-        $crate::with_test_db!($url, |$db| $test)
-    };
+            let backend = $crate::backends::sqlx::SqlxMySqlBackend::new(url)
+                .expect("Failed to create MySQL backend");
 
-    // Version with type annotation
-    (|$db:ident: $ty:ty| $test:expr) => {
-        $crate::with_test_db!("mysql://root:password@mysql:3306/", |$db: $ty| $test)
-    };
+            let pool_config = $crate::PoolConfig::default();
+            let test_db = $crate::test_db::TestDatabase::new(backend, pool_config)
+                .await
+                .expect("Failed to create test database template");
 
-    // Version with type annotation and URL
-    ($url:expr, |$db:ident: $ty:ty| $test:expr) => {
-        $crate::with_test_db!($url, |$db: $ty| $test)
+            tracing::info!("Created test database: {}", test_db.db_name);
+
+            $f(test_db).await
+        }
     };
 }
 
@@ -734,10 +734,20 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    #[cfg(feature = "sqlx-postgres")]
+    #[cfg(any(feature = "sqlx-postgres", feature = "postgres"))]
     async fn test_basic_database_operations() {
+        // Use the appropriate connection string based on the feature flags
+        #[cfg(feature = "sqlx-postgres")]
+        let connection_string = "postgres://postgres:postgres@postgres:5432/postgres";
+
+        #[cfg(all(feature = "sqlx-mysql", not(feature = "sqlx-postgres")))]
+        let connection_string = "mysql://root@mysql:3306?timeout=30&connect_timeout=30&pool_timeout=30&ssl-mode=DISABLED";
+
+        #[cfg(all(feature = "postgres", not(feature = "sqlx-postgres"), not(feature = "sqlx-mysql")))]
+        let connection_string = "postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable";
+
         with_test_db!(
-            "postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable",
+            connection_string,
             |db| async move {
                 // db is already a TestDatabase instance, not a template
                 let test_db = db;
@@ -757,16 +767,32 @@ mod tests {
 
                 #[cfg(all(feature = "sqlx-backend", not(feature = "postgres")))]
                 {
-                    // For SqlxPostgresBackend, use DatabasePool trait to acquire connection
+                    // For SQLx backends, use DatabasePool trait to acquire connection
                     use crate::backend::DatabasePool;
-                    let mut conn = test_db.pool.acquire().await.unwrap();
+                    
+                    #[cfg(feature = "sqlx-postgres")]
+                    {
+                        // Get a connection for Postgres
+                        let conn = test_db.pool.acquire().await.unwrap();
+                        let res = sqlx::query(
+                            "CREATE TABLE some_test_items (id UUID PRIMARY KEY, name TEXT NOT NULL)"
+                        )
+                        .execute(conn)
+                        .await;
+                        tracing::info!("Created table with SQLx Postgres backend: {:?}", res);
+                    }
 
-                    let res = sqlx::query!(
-                        "CREATE TABLE some_test_items (id UUID PRIMARY KEY, name TEXT NOT NULL)",
-                    )
-                    .execute(&mut conn)
-                    .await;
-                    tracing::info!("Created table with SQLx backend: {:?}", res);
+                    #[cfg(feature = "sqlx-mysql")]
+                    {
+                        // Get a connection for MySQL
+                        let conn = test_db.pool.acquire().await.unwrap();
+                        let res = sqlx::query(
+                            "CREATE TABLE some_test_items (id INT PRIMARY KEY AUTO_INCREMENT, name VARCHAR(255) NOT NULL)"
+                        )
+                        .execute(conn)
+                        .await;
+                        tracing::info!("Created table with SQLx MySQL backend: {:?}", res);
+                    }
                 }
 
                 Ok(()) as crate::error::Result<()>

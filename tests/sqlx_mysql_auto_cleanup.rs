@@ -33,16 +33,24 @@ mod sqlx_mysql_auto_cleanup_tests {
                 info!("Created test database: {}", db_name);
 
                 // Get a connection and verify it works
-                let mut conn = test_db.connection().await?;
+                let conn = test_db.connection().await?;
 
                 // Execute a simple query to verify connection
-                conn.execute("CREATE TABLE test_table (id INT)").await?;
-                conn.execute("INSERT INTO test_table VALUES (1), (2), (3)")
+                sqlx::query("CREATE TABLE test_table (id INT)")
+                    .execute(&conn)
+                    .await?;
+
+                sqlx::query("INSERT INTO test_table VALUES (1), (2), (3)")
+                    .execute(&conn)
                     .await?;
 
                 // Query the data to verify
-                let rows = conn.fetch("SELECT COUNT(*) FROM test_table").await?;
-                assert_eq!(rows.len(), 1);
+                let row = sqlx::query("SELECT COUNT(*) FROM test_table")
+                    .fetch_one(&conn)
+                    .await?;
+
+                let count: i64 = row.get(0);
+                assert_eq!(count, 3, "Expected 3 rows in the table");
 
                 info!(
                     "Test operations completed successfully on database: {}",
