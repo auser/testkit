@@ -176,15 +176,16 @@ mod sqlite_cross_db_tests {
 mod mysql_cross_db_tests {
     use super::*;
     use sqlx::{Executor, query};
+    use db_testkit::with_test_db;
 
     #[tokio::test]
     async fn test_mysql_schema_isolation() -> Result<()> {
         init_tracing();
         info!("Testing MySQL schema isolation");
 
-        let connection_string = "mysql://root@mysql:3306?timeout=30&connect_timeout=30&pool_timeout=30&ssl-mode=DISABLED";
+        let connection_string = "mysql://root@mysql:3306?timeout=30&connect_timeout=30&pool_timeout=30";
 
-        with_test_db!(connection_string, |db1| async move {
+        let _ = with_test_db!(connection_string, |db1| async move {
             // Set up first database with a table
             let conn1 = db1.connection().await?;
             query("CREATE TABLE db1_table (id INT PRIMARY KEY, value VARCHAR(255))")
@@ -194,7 +195,7 @@ mod mysql_cross_db_tests {
                 .execute(&conn1)
                 .await?;
 
-            with_test_db!(connection_string, |db2| async move {
+            let _ = with_test_db!(connection_string, |db2| async move {
                 // Set up second database with a different table
                 let conn2 = db2.connection().await?;
                 query("CREATE TABLE db2_table (id INT PRIMARY KEY, value VARCHAR(255))")
@@ -226,8 +227,10 @@ mod mysql_cross_db_tests {
                 info!("MySQL schema isolation test completed");
                 Ok(())
             })
-            .await
+            .await?;
+            
+            Ok(())
         })
-        .await
+        .await;
     }
 } 

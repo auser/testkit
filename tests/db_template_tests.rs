@@ -318,7 +318,7 @@ mod sqlite_template_tests {
         info!("Testing SQLite template database operations");
 
         // Create a backend
-        let backend = db_testkit::backends::sqlite::SqliteBackend::new("sqlite_testdb")
+        let backend = db_testkit::backends::sqlite::SqliteBackend::new(":memory:")
             .await
             .expect("Failed to create database backend");
 

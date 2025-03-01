@@ -716,11 +716,13 @@ mod tests {
         .expect("Failed to connect");
 
         #[cfg(feature = "sqlx-mysql")]
+        #[allow(unused)]
         let pool = sqlx::MySqlPool::connect("mysql://root@mysql:3306/mysql")
             .await
             .expect("Failed to connect");
 
         #[cfg(feature = "sqlx-sqlite")]
+        #[allow(unused)]
         let pool = sqlx::SqlitePool::connect("sqlite::memory:")
             .await
             .expect("Failed to connect");
