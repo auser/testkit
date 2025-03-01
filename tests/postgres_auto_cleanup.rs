@@ -21,7 +21,16 @@ mod postgres_auto_cleanup_tests {
         // List databases before test
         debug!("--- Databases before test ---");
         let _ = std::process::Command::new("psql")
-            .args(["-h", "postgres", "-U", "postgres", "-c", "\\l", "-t"])
+            .args([
+                "-h",
+                "postgres",
+                "-U",
+                "postgres",
+                "-P",
+                "pager=off",
+                "-c",
+                "\\l",
+            ])
             .status();
 
         // This scope ensures that test_db is dropped before we check for cleanup
@@ -75,7 +84,16 @@ mod postgres_auto_cleanup_tests {
         // List databases after test
         debug!("--- Databases after test (should be auto-cleaned up) ---");
         let _ = std::process::Command::new("psql")
-            .args(["-h", "postgres", "-U", "postgres", "-c", "\\l", "-t"])
+            .args([
+                "-h",
+                "postgres",
+                "-U",
+                "postgres",
+                "-P",
+                "pager=off",
+                "-c",
+                "\\l",
+            ])
             .status();
 
         // Verify database was cleaned up
