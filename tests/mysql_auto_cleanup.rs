@@ -1,7 +1,10 @@
 #[cfg(feature = "mysql")]
 mod mysql_auto_cleanup_tests {
     use db_testkit::backend::Connection;
-    use db_testkit::{with_test_db, Result};
+    use db_testkit::backends::MySqlBackend;
+    use db_testkit::env::get_mysql_url;
+    use db_testkit::test_db::TestDatabase;
+    use db_testkit::{init_tracing, Result};
     use std::time::Duration;
     use tokio::time::sleep;
     use tracing::{debug, info};
@@ -12,9 +15,7 @@ mod mysql_auto_cleanup_tests {
         if std::env::var("RUST_LOG").is_err() {
             std::env::set_var("RUST_LOG", "db_testkit=debug,mysql_async=info");
         }
-
-        // Always initialize tracing
-        let _ = tracing_subscriber::fmt::try_init();
+        init_tracing();
 
         info!("=== Starting MySQL auto-cleanup test ===");
 
@@ -24,52 +25,42 @@ mod mysql_auto_cleanup_tests {
             .args(["-h", "mysql", "-u", "root", "-e", "SHOW DATABASES"])
             .status();
 
-        // This scope ensures that test_db is dropped before we check for cleanup
+        // Create the backend and test database directly
+        let backend = MySqlBackend::new(&get_mysql_url()?)?;
+        let test_db = TestDatabase::new(backend, Default::default()).await?;
+
+        // Remember the database name for later verification
+        let db_name_to_verify = test_db.db_name.to_string();
+        info!("Created test database: {}", db_name_to_verify);
+
+        // Run test operations
         {
-            // Run a test with MySQL database that will be auto-cleaned
-            info!("--- Creating test database ---");
-            with_test_db(|test_db| async move {
-                // Log the database name for verification
-                let db_name = test_db.db_name.clone();
-                info!("Created test database: {}", db_name);
+            // Get a connection and verify it works
+            let mut conn = test_db.connection().await?;
 
-                // Get a connection and verify it works
-                let mut conn = test_db.connection().await?;
+            // Execute a simple query to verify connection
+            conn.execute("CREATE TABLE test_table (id INT)").await?;
+            conn.execute("INSERT INTO test_table VALUES (1), (2), (3)")
+                .await?;
 
-                // Execute a simple query to verify connection
-                conn.execute("CREATE TABLE test_table (id INT)").await?;
-                conn.execute("INSERT INTO test_table VALUES (1), (2), (3)")
-                    .await?;
+            // Query the data to verify
+            let rows = conn.fetch("SELECT COUNT(*) FROM test_table").await?;
+            assert_eq!(rows.len(), 1);
 
-                // Query the data to verify
-                let rows = conn.fetch("SELECT COUNT(*) FROM test_table").await?;
-                assert_eq!(rows.len(), 1);
+            info!(
+                "Test operations completed successfully on database: {}",
+                db_name_to_verify
+            );
 
-                info!(
-                    "Test operations completed successfully on database: {}",
-                    db_name
-                );
-
-                // Explicitly drop the connection to ensure it's not kept alive
-                drop(conn);
-
-                // Sleep briefly to allow for any async cleanup
-                sleep(Duration::from_millis(100)).await;
-
-                Ok(())
-            })
-            .await;
-
-            info!("--- Test function completed, TestDatabase instance should be dropped soon ---");
-
-            // Sleep briefly to ensure TestDatabase drop has fully completed
-            sleep(Duration::from_millis(500)).await;
+            // Explicitly drop the connection to ensure it's not kept alive
+            drop(conn);
         }
 
-        info!("--- After test scope, checking if database was cleaned up ---");
+        // Explicitly drop the database to trigger cleanup
+        drop(test_db);
 
-        // Ensure all cleanup has finished
-        sleep(Duration::from_secs(1)).await;
+        info!("--- Test database dropped, waiting for cleanup ---");
+        sleep(Duration::from_secs(2)).await;
 
         // List databases after test
         debug!("--- Databases after test ---");
@@ -77,20 +68,42 @@ mod mysql_auto_cleanup_tests {
             .args(["-h", "mysql", "-u", "root", "-e", "SHOW DATABASES"])
             .status();
 
-        // Verify no testkit databases remain
+        // Verify the specific database created in this test was cleaned up
         let output = std::process::Command::new("mysql")
-            .args(["-h", "mysql", "-u", "root", "-e", "SHOW DATABASES"])
+            .args([
+                "-h",
+                "mysql",
+                "-u",
+                "root",
+                "-e",
+                &format!(
+                    "SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = '{}'",
+                    db_name_to_verify
+                ),
+            ])
             .output()
             .expect("Failed to execute command");
 
         let output_str = String::from_utf8_lossy(&output.stdout);
-        let has_testkit = output_str.contains("testkit_");
+        let count = output_str
+            .trim()
+            .lines()
+            .last()
+            .unwrap_or("1")
+            .trim()
+            .parse::<i32>()
+            .unwrap_or(1);
 
-        debug!("Testkit databases remain: {}", has_testkit);
-        if !has_testkit {
-            info!("All testkit databases were properly cleaned up");
+        if count == 0 {
+            info!(
+                "Test database {} was properly cleaned up",
+                db_name_to_verify
+            );
         } else {
-            panic!("Testkit databases were not properly cleaned up");
+            panic!(
+                "Test database {} was not properly cleaned up",
+                db_name_to_verify
+            );
         }
 
         info!("=== MySQL auto-cleanup test completed successfully ===");

@@ -48,14 +48,14 @@ async fn main() -> Result<()> {
             // Display the results
             info!("Query results:");
             for row in rows {
-                let id: i32 = row.get::<usize, i32>(0);
-                let name: String = row.get::<usize, String>(1);
+                let id: i32 = row.get(0).unwrap();
+                let name: String = row.get(1).unwrap();
                 info!("  id: {}, name: {}", id, name);
             }
 
             // Count the rows
             let count_rows = conn.fetch("SELECT COUNT(*) FROM test_table").await?;
-            let count: i64 = count_rows[0].get::<usize, i64>(0);
+            let count: i64 = count_rows[0].get(0).unwrap_or(0);
             info!("Total rows: {}", count);
         }
 
