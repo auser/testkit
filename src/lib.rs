@@ -120,18 +120,20 @@ mod mysql_tests {
 
     #[tokio::test]
     #[cfg(all(
-        feature = "mysql",
+        any(feature = "mysql", feature = "sqlx-mysql"),
         not(feature = "postgres"),
         not(feature = "sqlx-postgres"),
         not(feature = "sqlx-sqlite")
     ))]
     async fn test_mysql_basic_operations() {
         // Setup logging
+
+        use crate::with_test_db;
         std::env::set_var("RUST_LOG", "debug,mysql_async=debug");
         let _ = ::tracing_subscriber::fmt::try_init();
 
         // Use a try-catch approach to handle potential connection errors
-        if let Err(e) = async {
+        async {
             with_test_db!(|db| async move {
                 ::tracing::info!("Connected to MySQL test database: {}", db.db_name);
                 
@@ -180,14 +182,8 @@ mod mysql_tests {
                 ::tracing::info!("Verified fetch_optional works");
 
                 Ok(())
-            }).await
-        }.await {
-            ::tracing::error!("MySQL test skipped due to connection error: {}", e);
-            eprintln!("MySQL test skipped due to connection error: {}", e);
-        } else {
-            ::tracing::info!("MySQL test completed successfully");
-            println!("MySQL test completed successfully");
-        }
+            })
+        }.await;
     }
 }
 
