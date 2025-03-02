@@ -110,6 +110,111 @@ where
     }
 }
 
+// Wrapper struct to provide Transaction impl for functions
+pub struct FnTransaction<F, Context, T, E>(pub F, std::marker::PhantomData<(Context, T, E)>)
+where
+    F: Fn(&mut Context) -> Result<T, E>;
+
+impl<F, Context, T, E> FnTransaction<F, Context, T, E>
+where
+    F: Fn(&mut Context) -> Result<T, E>,
+{
+    pub fn new(f: F) -> Self {
+        Self(f, std::marker::PhantomData)
+    }
+}
+
+#[async_trait::async_trait]
+impl<F, Context, T, E> Transaction for FnTransaction<F, Context, T, E>
+where
+    F: Fn(&mut Context) -> Result<T, E> + Send + Sync,
+    Context: Send + Sync,
+    T: Send + Sync,
+    E: Send + Sync,
+{
+    type Context = Context;
+    type Item = T;
+    type Error = E;
+
+    async fn execute(&self, ctx: &mut Self::Context) -> Result<Self::Item, Self::Error> {
+        (self.0)(ctx)
+    }
+}
+
+/// Configuration for database connections
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DatabaseConfig {
+    /// Connection string for admin operations (schema changes, etc.)
+    pub admin_url: String,
+    /// Connection string for regular operations
+    pub user_url: String,
+}
+
+impl DatabaseConfig {
+    /// Create a new configuration with explicit connection strings
+    pub fn new(admin_url: impl Into<String>, user_url: impl Into<String>) -> Self {
+        Self {
+            admin_url: admin_url.into(),
+            user_url: user_url.into(),
+        }
+    }
+
+    /// Get a configuration from environment variables
+    /// Uses ADMIN_DATABASE_URL and DATABASE_URL
+    pub fn from_env() -> std::result::Result<Self, std::env::VarError> {
+        let admin_url = std::env::var("ADMIN_DATABASE_URL")?;
+        let user_url = std::env::var("DATABASE_URL")?;
+        Ok(Self::new(admin_url, user_url))
+    }
+}
+
+/// Database context that can be used with transactions
+#[derive(Debug, Clone)]
+pub struct DatabaseContext<Conn> {
+    /// The actual database connection
+    pub connection: Conn,
+    /// Configuration used to establish the connection
+    pub config: DatabaseConfig,
+}
+
+impl<Conn> DatabaseContext<Conn> {
+    /// Create a new database context with a connection and configuration
+    pub fn new(connection: Conn, config: DatabaseConfig) -> Self {
+        Self { connection, config }
+    }
+}
+
+/// Create a transaction with database context
+///
+/// Uses the configuration already in the context. To load from environment
+/// variables, initialize your context with `DatabaseConfig::from_env()`.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// // With explicit config
+/// let config = DatabaseConfig::new("postgres://admin@localhost/mydb", "postgres://user@localhost/mydb");
+/// let conn = get_database_connection(&config.user_url);
+/// let ctx = DatabaseContext::new(conn, config);
+/// let tx = with_database(|ctx| async {
+///     // Use ctx.connection to interact with the database
+///     // ctx.config contains the connection strings if needed
+///     Ok(())
+/// });
+/// ```
+pub fn with_database<F, Fut, Conn, T, E>(
+    f: F,
+) -> impl Transaction<Context = DatabaseContext<Conn>, Item = T, Error = E>
+where
+    F: Fn(&mut DatabaseContext<Conn>) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = std::result::Result<T, E>> + Send + 'static,
+    Conn: Send + Sync + 'static,
+    T: Send + Sync + 'static,
+    E: Send + Sync + 'static,
+{
+    with_context(f)
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -129,6 +234,60 @@ mod tests {
         fn set_value(&mut self, value: i32) {
             self.value = value;
         }
+    }
+
+    // Mock database connection for testing
+    #[derive(Debug, Clone)]
+    struct MockDbConnection {
+        #[allow(dead_code)]
+        name: String,
+    }
+
+    impl MockDbConnection {
+        fn new(name: impl Into<String>) -> Self {
+            Self { name: name.into() }
+        }
+
+        #[allow(dead_code)]
+        fn get_name(&self) -> &str {
+            &self.name
+        }
+    }
+
+    // Mock database error type
+    #[derive(Debug)]
+    enum MockDbError {
+        #[allow(dead_code)]
+        ConnectionError(String),
+    }
+
+    #[tokio::test]
+    async fn test_with_database() {
+        // Create config
+        let config = DatabaseConfig::new(
+            "postgres://admin@localhost/testdb",
+            "postgres://user@localhost/testdb",
+        );
+
+        // Create mock connection
+        let mock_connection = MockDbConnection::new("test_connection");
+
+        // Create database context
+        let mut ctx = DatabaseContext::new(mock_connection, config);
+
+        // Create a simple transaction that returns the database URL
+        let tx = with_context(move |ctx: &mut DatabaseContext<MockDbConnection>| {
+            // Clone the data we need to avoid reference lifetime issues
+            let url = ctx.config.user_url.clone();
+
+            async move { Ok::<String, MockDbError>(url) }
+        });
+
+        // Execute the transaction
+        let result = tx.execute(&mut ctx).await;
+
+        // Verify the result
+        assert_eq!(result.unwrap(), "postgres://user@localhost/testdb");
     }
 
     pub fn simple_tx<F>(
@@ -282,18 +441,14 @@ mod tests {
             let mut conn = TestConn { value: 5 };
             let result = setup_tx.execute(&mut conn).await;
 
-            // 5 + 10 = 15, then 15 * 2 = 30 in the setup handler
             assert_eq!(result.unwrap().value, 30);
-            // Original connection still has 15
             assert_eq!(conn.value, 15);
         }
 
         // Second test: setup handling a failed transaction
         {
-            // First transaction always fails
             let tx1 = simple_tx(|_| Err(()));
 
-            // Setup provides a fallback value on error
             let setup_tx = tx1.setup(|res| {
                 if res.is_ok() {
                     let conn = res.unwrap();
@@ -308,9 +463,7 @@ mod tests {
             let mut conn = TestConn { value: 5 };
             let result = setup_tx.execute(&mut conn).await;
 
-            // First transaction fails, setup provides fallback value
             assert_eq!(result.unwrap().value, 42);
-            // Original connection is unchanged
             assert_eq!(conn.value, 5);
         }
     }
