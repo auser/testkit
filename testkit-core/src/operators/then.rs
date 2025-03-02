@@ -1,20 +1,22 @@
 use std::marker::PhantomData;
 
+use async_trait::async_trait;
+
 use crate::{IntoTransaction, Transaction};
 
 #[derive(Debug)]
 #[must_use]
-pub struct Then<Context1, Fun, Context2> {
-    tx: Context1,
-    f: Fun,
-    _phantom2: PhantomData<Context2>,
+pub struct Then<PrimaryTx, NextFn, NextTx> {
+    tx: PrimaryTx,
+    f: NextFn,
+    _phantom2: PhantomData<NextTx>,
 }
 
-pub fn then<Context1, Fun, Context2>(tx: Context1, f: Fun) -> Then<Context1, Fun, Context2>
+pub fn then<PrimaryTx, NextFn, NextTx>(tx: PrimaryTx, f: NextFn) -> Then<PrimaryTx, NextFn, NextTx>
 where
-    Context1: Transaction,
-    Context2: Transaction,
-    Fun: Fn(Context1::Item) -> Context2,
+    PrimaryTx: Transaction,
+    NextTx: Transaction,
+    NextFn: Fn(PrimaryTx::Item) -> NextTx,
 {
     Then {
         tx,
@@ -23,18 +25,27 @@ where
     }
 }
 
-impl<Context, Fun, Context2> Transaction for Then<Context, Fun, Context2>
+#[async_trait]
+impl<PrimaryTx, NextFn, NextTx> Transaction for Then<PrimaryTx, NextFn, NextTx>
 where
-    Context: Transaction,
-    Context2: IntoTransaction<Context::Context, Error = Context::Error>,
-    Fun: Fn(Result<Context::Item, Context::Error>) -> Context2,
+    // Primary transaction
+    PrimaryTx: Transaction,
+    // Function to create next transaction
+    NextFn: Fn(PrimaryTx::Item) -> NextTx + Send + Sync,
+    // Next transaction must be compatible with primary
+    NextTx: IntoTransaction<PrimaryTx::Context, Item = PrimaryTx::Item, Error = PrimaryTx::Error>
+        + Send
+        + Sync,
 {
-    type Context = Context::Context;
-    type Item = Context2::Item;
-    type Error = Context2::Error;
+    type Context = PrimaryTx::Context;
+    type Item = PrimaryTx::Item;
+    type Error = PrimaryTx::Error;
 
-    fn execute(&self, ctx: &mut Self::Context) -> Result<Self::Item, Self::Error> {
-        let Then { tx, f, _phantom2 } = self;
-        f(tx.execute(ctx)).into_transaction().execute(ctx)
+    async fn execute(&self, ctx: &mut Self::Context) -> Result<Self::Item, Self::Error> {
+        // First await the primary transaction
+        let result = self.tx.execute(ctx).await?;
+
+        // Then pass the result to the function and execute the second transaction
+        (self.f)(result).into_transaction().execute(ctx).await
     }
 }

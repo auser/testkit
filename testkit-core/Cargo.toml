@@ -8,6 +8,10 @@ tracing = { version = "0.1.40", features = [], optional = true }
 tracing-subscriber = { version = "0.3", features = [
   "env-filter",
 ], optional = true }
+async-trait = "0.1.75"
+
+[dev-dependencies]
+tokio = { version = "1.40.0", features = ["macros", "rt-multi-thread"] }
 
 
 [features]

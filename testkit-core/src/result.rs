@@ -1,5 +1,7 @@
 use std::marker::PhantomData;
 
+use async_trait::async_trait;
+
 use crate::Transaction;
 
 #[derive(Debug)]
@@ -16,6 +18,7 @@ pub fn result<Context, T, E>(r: Result<T, E>) -> TxResult<Context, T, E> {
     }
 }
 
+#[async_trait]
 impl<Context, T, E> Transaction for TxResult<Context, T, E>
 where
     T: Clone + Send + Sync,
@@ -26,7 +29,7 @@ where
     type Item = T;
     type Error = E;
 
-    fn execute<'a>(&'a self, _ctx: &'a mut Self::Context) -> Result<Self::Item, Self::Error> {
+    async fn execute(&self, _ctx: &mut Self::Context) -> Result<Self::Item, Self::Error> {
         self.r.clone()
     }
 }

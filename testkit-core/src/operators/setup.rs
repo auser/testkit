@@ -1,20 +1,23 @@
 use std::marker::PhantomData;
 
 use crate::{IntoTransaction, Transaction};
+use async_trait::async_trait;
 
 #[derive(Debug)]
 #[must_use]
-pub struct Setup<Context, Fun, Context2> {
-    tx: Context,
-    f: Fun,
-    _phantom2: PhantomData<Context2>,
+pub struct Setup<Tx, F, Next> {
+    tx: Tx,
+    f: F,
+    _phantom2: PhantomData<Next>,
 }
 
-pub fn setup<Context, Fun, Context2>(tx: Context, f: Fun) -> Setup<Context, Fun, Context2>
+/// Create a transaction that executes the primary transaction and then passes its result
+/// to a function that returns the next transaction to execute.
+pub fn setup<Tx, F, Next>(tx: Tx, f: F) -> Setup<Tx, F, Next>
 where
-    Context: Transaction,
-    Context2: IntoTransaction<Context::Context, Error = Context::Error>,
-    Fun: Fn(Context::Context) -> Context2,
+    Tx: Transaction,
+    F: Fn(Result<Tx::Item, Tx::Error>) -> Next + Send + Sync,
+    Next: IntoTransaction<Tx::Context, Item = Tx::Item, Error = Tx::Error> + Send + Sync,
 {
     Setup {
         tx,
@@ -23,18 +26,19 @@ where
     }
 }
 
-impl<Context, Fun, Context2> Transaction for Setup<Context, Fun, Context2>
+#[async_trait]
+impl<Tx, F, Next> Transaction for Setup<Tx, F, Next>
 where
-    Context: Transaction,
-    Context2: IntoTransaction<Context::Context, Error = Context::Error>,
-    Fun: Fn(Result<Context::Item, Context::Error>) -> Context2,
+    Tx: Transaction,
+    F: Fn(Result<Tx::Item, Tx::Error>) -> Next + Send + Sync,
+    Next: IntoTransaction<Tx::Context, Item = Tx::Item, Error = Tx::Error> + Send + Sync,
 {
-    type Context = Context::Context;
-    type Item = Context2::Item;
-    type Error = Context2::Error;
+    type Context = Tx::Context;
+    type Item = Next::Item;
+    type Error = Next::Error;
 
-    fn execute(&self, ctx: &mut Self::Context) -> Result<Self::Item, Self::Error> {
-        let Setup { tx, f, _phantom2 } = self;
-        f(tx.execute(ctx)).into_transaction().execute(ctx)
+    async fn execute(&self, ctx: &mut Self::Context) -> Result<Self::Item, Self::Error> {
+        let result = self.tx.execute(ctx).await;
+        (self.f)(result).into_transaction().execute(ctx).await
     }
 }
