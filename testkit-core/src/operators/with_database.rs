@@ -1,76 +1,106 @@
-use crate::Transaction;
+use std::future::Future;
+use std::marker::PhantomData;
 
-use super::with_context;
+use crate::{DatabaseBackend, DatabaseConfig, DatabasePool, TestDatabase, with_database_setup_raw};
 
-/// Configuration for database connections
-#[derive(Debug, Clone)]
-pub struct DatabaseConfig {
-    /// Connection string for admin operations (schema changes, etc.)
-    pub admin_url: String,
-    /// Connection string for regular operations
-    pub user_url: String,
-}
-
-impl DatabaseConfig {
-    /// Create a new configuration with explicit connection strings
-    pub fn new(admin_url: impl Into<String>, user_url: impl Into<String>) -> Self {
-        Self {
-            admin_url: admin_url.into(),
-            user_url: user_url.into(),
-        }
-    }
-
-    /// Get a configuration from environment variables
-    /// Uses ADMIN_DATABASE_URL and DATABASE_URL
-    pub fn from_env() -> std::result::Result<Self, std::env::VarError> {
-        #[cfg(feature = "dotenvy")]
-        let _ = dotenvy::dotenv();
-        let admin_url = std::env::var("ADMIN_DATABASE_URL")?;
-        let user_url = std::env::var("DATABASE_URL")?;
-        Ok(Self::new(admin_url, user_url))
-    }
-}
-
-/// Database context that can be used with transactions
 #[derive(Debug)]
-pub struct DatabaseContext<Conn> {
-    /// The actual database connection
-    pub connection: Conn,
-    /// Configuration used to establish the connection
-    pub config: DatabaseConfig,
+#[must_use]
+pub struct WithDatabase<B, TestDatabase> {
+    /// The test database
+    #[allow(dead_code)]
+    tdb: TestDatabase,
+    /// The backend
+    _backend: PhantomData<B>,
 }
 
-/// Create a transaction with database context
+/// Create a new test database with the specified backend and configuration
 ///
-/// If `config` is None, it will try to read configuration from environment variables
+/// This function creates a new isolated test database using the provided backend and configuration.
+/// The database will be automatically cleaned up when the returned TestDatabase is dropped.
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// // With explicit config
-/// let config = DatabaseConfig::new("postgres://admin@localhost/mydb", "postgres://user@localhost/mydb");
-/// let tx = with_database(config, |ctx| async {
-///     // Use ctx.connection to interact with the database
-///     // ctx.config contains the connection strings if needed
-///     Ok(())
-/// });
+/// ```rust,no_run,ignore
+/// use testkit_core::prelude::*;
 ///
-/// // Using environment variables
-/// let tx = with_database(None, |ctx| async {
-///     // Same as above, but config comes from environment
-///     Ok(())
-/// });
+/// #[derive(Debug, Clone)]
+/// struct MyDatabaseBackend {
+///     value: i32,
+/// }
+///
+/// #[tokio::main]
+/// async fn main() {
+///     let backend = MyDatabaseBackend::new();
+///     let config = DatabaseConfig::from_env();
+///     
+///     // Create a test database
+///     let test_db = with_database(backend, config).await.unwrap();
+///     
+///     // Use test_db for your tests
+///     // ...
+///     
+///     // Database is automatically cleaned up when test_db is dropped
+/// }
 /// ```
-pub fn with_database<F, Fut, Conn, T, E>(
-    _config: Option<DatabaseConfig>,
-    f: F,
-) -> impl Transaction<Context = DatabaseContext<Conn>, Item = T, Error = E>
+pub async fn with_database<B>(
+    backend: B,
+    config: DatabaseConfig,
+) -> Result<WithDatabase<B, TestDatabase<B>>, B::Error>
 where
-    F: Fn(&mut DatabaseContext<Conn>) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = std::result::Result<T, E>> + Send + 'static,
-    Conn: Send + Sync + 'static,
-    T: Send + Sync + 'static,
-    E: Send + Sync + 'static,
+    B: DatabaseBackend + 'static,
 {
-    with_context(move |ctx: &mut DatabaseContext<Conn>| f(ctx))
+    let tdb = TestDatabase::new(backend, config).await?;
+    Ok(WithDatabase {
+        tdb,
+        _backend: PhantomData,
+    })
+}
+
+/// Create a new test database with a setup function
+///
+/// This is a convenience function that creates a test database and initializes it
+/// with a setup function that can create tables, populate initial data, etc.
+///
+/// # Example
+///
+/// ```rust,no_run,ignore
+/// use testkit_core::with_database_setup;
+///
+/// #[tokio::main]
+/// async fn main() {
+///     let backend = MyDatabaseBackend::new();
+///     let config = DatabaseConfig::from_env();
+///     
+///     // Create a test database with a setup function
+///     let test_db = with_database_setup(backend, config, |conn| async move {
+///         // Create tables, insert data, etc.
+///         conn.execute("CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT)").await?;
+///         Ok(())
+///     }).await.unwrap();
+///     
+///     // Database is now set up and ready for tests
+/// }
+/// ```
+pub async fn with_database_setup<B, F, Fut>(
+    backend: B,
+    config: DatabaseConfig,
+    setup_fn: F,
+) -> Result<TestDatabase<B>, B::Error>
+where
+    B: DatabaseBackend + 'static,
+    F: FnOnce(&mut <B::Pool as DatabasePool>::Connection) -> Fut + Send,
+    Fut: Future<Output = Result<(), B::Error>> + Send,
+{
+    // // Create the test database
+    // let mut db = TestDatabase::new(backend, config).await?;
+
+    // // Initialize connection pool
+    // db.initialize_connection_pool().await?;
+
+    // // Run the setup function
+    // db.setup(setup_fn).await?;
+
+    // Ok(db)
+    let setup_db = with_database_setup_raw(backend, config, setup_fn).await?;
+    Ok(setup_db)
 }

@@ -7,3 +7,9 @@ resolver = "2"
 # Required logging dependencies - tracing is always included as a core dependency
 uuid = { version = "1.6.1", features = ["v4"] }
 thiserror = "2.0"
+
+tokio = { version = "1", features = ["rt"] }
+async-trait = "0.1"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+dotenv = "0.15"

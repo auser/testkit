@@ -4,7 +4,6 @@ use std::marker::PhantomData;
 use crate::Transaction;
 use async_trait::async_trait;
 
-/// The result of `with_ctx`
 #[derive(Debug)]
 #[must_use]
 pub struct WithContext<Context, Fun> {

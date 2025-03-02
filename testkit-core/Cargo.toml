@@ -10,10 +10,12 @@ tracing-subscriber = { version = "0.3", features = [
   "env-filter",
 ], optional = true }
 async-trait = "0.1.75"
+uuid = { version = "1.4", features = ["v4"] }
+parking_lot = "0.12.1"
+tokio = { version = "1.40.0", features = ["sync", "rt", "rt-multi-thread"] }
 
 [dev-dependencies]
 tokio = { version = "1.40.0", features = ["macros", "rt-multi-thread"] }
-
 
 [features]
 default = ["tracing", "dotenvy"]
