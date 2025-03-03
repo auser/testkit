@@ -1,8 +1,10 @@
+use std::future::Future;
 use std::marker::PhantomData;
+use std::pin::Pin;
 
 use async_trait::async_trait;
 
-use crate::Transaction;
+use crate::{BoxFuture, Transaction};
 
 #[derive(Debug)]
 #[must_use]

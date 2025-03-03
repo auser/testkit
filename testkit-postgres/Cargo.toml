@@ -1,0 +1,29 @@
+[package]
+name = "testkit-postgres"
+version = "0.1.0"
+edition = "2024"
+description = "PostgreSQL adapter for the testkit database testing framework"
+license = "MIT"
+
+[dependencies]
+testkit-core = { path = "../testkit-core" }
+sqlx = { version = "0.8.2", default-features = false, features = [
+  "postgres",
+  "runtime-tokio",
+  "tls-rustls",
+] }
+tokio = { version = "1.40.0", features = ["rt", "sync", "macros"] }
+async-trait = "0.1.75"
+tracing = "0.1.40"
+thiserror = "2.0"
+url = "2.4.1"
+
+[features]
+default = ["sqlx"]
+sqlx = []
+tokio-postgres = []
+
+[dev-dependencies]
+tokio = { version = "1.40.0", features = ["rt-multi-thread", "macros"] }
+dotenvy = "0.15.0"
+uuid = { version = "1.4", features = ["v4"] }

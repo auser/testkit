@@ -1,5 +1,5 @@
 [workspace]
-members = ["testkit-core", "examples"]
+members = ["testkit-core", "examples", "testkit-postgres"]
 resolver = "2"
 
 # Required logging dependencies - tracing is always included as a core dependency

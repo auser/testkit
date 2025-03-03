@@ -4,6 +4,8 @@ use std::fmt::{Debug, Display};
 use std::sync::Arc;
 use uuid::Uuid;
 
+use crate::Transaction;
+
 /// Configuration for database connections
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DatabaseConfig {
@@ -35,8 +37,8 @@ impl DatabaseConfig {
     pub fn from_env() -> std::result::Result<Self, std::env::VarError> {
         #[cfg(feature = "dotenvy")]
         let _ = dotenvy::from_filename(".env");
-        let admin_url = std::env::var("ADMIN_DATABASE_URL").unwrap_or_default();
-        let user_url = std::env::var("DATABASE_URL").unwrap_or_default();
+        let user_url = std::env::var("DATABASE_URL")?;
+        let admin_url = std::env::var("ADMIN_DATABASE_URL").unwrap_or(user_url.clone());
         Ok(Self::new(admin_url, user_url))
     }
 }

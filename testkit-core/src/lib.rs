@@ -156,6 +156,19 @@ where
     }
 }
 
+// impl<B, Context> IntoTransaction<Context> for TestDatabaseInstance<B>
+// where
+//     B: DatabaseBackend + Clone + std::fmt::Debug + Send + Sync + 'static,
+// {
+//     type Tx = TestDatabaseInstance<B>;
+//     type Error = PostgresError;
+//     type Item = ();
+
+//     fn into_transaction(self) -> Self::Tx {
+//         self
+//     }
+// }
+
 impl<Context, T, E> IntoTransaction<Context> for Result<T, E>
 where
     T: Clone + Send + Sync,
