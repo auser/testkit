@@ -20,7 +20,7 @@ transactions across different database adapters.
 ## Example
 
 ```rust,no_run
-use testkit_core::{Transaction, TransactionManager, with_transaction};
+use testkit_core::{DatabaseBackend, DatabaseConfig, TestDatabaseInstance, Transaction, with_database};
 
 #[derive(Debug, Clone)]
 struct User {
@@ -28,24 +28,25 @@ struct User {
     name: String,
 }
 
-// Define a transaction that interacts with the database using a transaction
-fn get_user<Ctx, Tx, Conn, E>(id: i32) -> impl Transaction<Context = Ctx, Item = User, Error = E>
+// Define a database operation using the with_database function
+fn get_user<B>(
+    backend: B,
+    config: DatabaseConfig,
+    id: i32
+) -> impl Transaction<Context = TestDatabaseInstance<B>, Item = User, Error = String>
 where
-    Ctx: TransactionManager<Tx, Conn, Error = E> + Send + Sync + 'static,
-    Conn: Send + Sync + 'static,
-    Tx: Send + Sync + 'static,
-    E: Send + Sync + 'static,
+    B: DatabaseBackend + Clone + std::fmt::Debug + Send + Sync + 'static,
 {
-    with_transaction(move |ctx, tx| async move {
-        // Database operations using the transaction...
-        // Transaction is automatically managed:
-        // - BEGIN already called
-        // - COMMIT will be called if Ok is returned
-        // - ROLLBACK will be called if Err is returned
-        Ok(User { id, name: "Example".to_string() })
+    with_database(backend, config, move |db| {
+        Box::pin(async move {
+            // Database operations would go here in a real implementation
+            // For example: db.acquire_connection().await?.execute_query(...).await?
+
+            // Return a user for demonstration purposes
+            Ok(User { id, name: "Example".to_string() })
+        })
     })
 }
-```
 */
 
 #[cfg(feature = "tracing")]
@@ -60,9 +61,7 @@ pub mod prelude {
     // pub use crate::env::*;
     pub use crate::operators::*;
     pub use crate::result::*;
-    pub use crate::{
-        DatabaseBackend, DatabaseConfig, DatabaseContext, Transaction, TransactionManager,
-    };
+    pub use crate::{DatabaseBackend, DatabaseConfig, Transaction};
 }
 
 mod database;
@@ -73,13 +72,16 @@ mod result;
 #[cfg(test)]
 mod tests;
 
-pub use database::*;
+pub use database::{
+    DatabaseBackend, DatabaseConfig, DatabaseName, DatabasePool, DatabaseTransaction,
+    TestDatabaseConnection, TestDatabaseInstance, TransactionManager,
+};
 pub use operators::*;
 pub use result::*;
 
 use std::future::Future;
 
-// /// A boxed future that resolves to a Result
+/// A boxed future that resolves to a Result
 pub type BoxFuture<'a, T, E> =
     std::pin::Pin<Box<dyn Future<Output = std::result::Result<T, E>> + Send + 'a>>;
 
@@ -198,58 +200,6 @@ where
     async fn execute(&self, ctx: &mut Self::Context) -> Result<Self::Item, Self::Error> {
         (self.0)(ctx)
     }
-}
-
-/// Create a transaction with database context
-///
-/// Uses the configuration already in the context. To load from environment
-/// variables, initialize your context with `DatabaseConfig::from_env()`.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// // With explicit config
-/// let config = DatabaseConfig::new("postgres://admin@localhost/mydb", "postgres://user@localhost/mydb");
-/// let conn = get_database_connection(&config.user_url);
-/// let ctx = DefaultDatabaseContext::new(conn, config);
-/// let tx = with_database(|ctx| async {
-///     // Use ctx.connection to interact with the database
-///     // ctx.config contains the connection strings if needed
-///     Ok(())
-/// });
-/// ```
-pub fn with_database<F, Fut, Ctx, Conn, T, E>(
-    f: F,
-) -> impl Transaction<Context = Ctx, Item = T, Error = E>
-where
-    F: Fn(&mut Ctx) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = std::result::Result<T, E>> + Send + 'static,
-    Ctx: DatabaseContext<Conn> + Send + Sync + 'static,
-    Conn: Send + Sync + 'static,
-    T: Send + Sync + 'static,
-    E: Send + Sync + 'static,
-{
-    with_context(f)
-}
-
-/// Trait for managing database transactions
-#[async_trait::async_trait]
-pub trait TransactionManager<Tx, Conn>: DatabaseContext<Conn>
-where
-    Tx: Send + Sync,
-    Conn: Send + Sync,
-{
-    /// Error type returned by transaction operations
-    type Error: Send + Sync;
-
-    /// Begin a new transaction
-    async fn begin_transaction(&mut self) -> Result<Tx, Self::Error>;
-
-    /// Commit a transaction
-    async fn commit_transaction(tx: &mut Tx) -> Result<(), Self::Error>;
-
-    /// Rollback a transaction
-    async fn rollback_transaction(tx: &mut Tx) -> Result<(), Self::Error>;
 }
 
 #[cfg(test)]

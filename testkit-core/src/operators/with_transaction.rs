@@ -12,26 +12,31 @@ use async_trait::async_trait;
 /// 3. Automatically commits on success
 /// 4. Automatically rolls back on error
 ///
+/// This function is typically used after setting up a database with `with_database`.
+///
 /// # Examples
 ///
 /// ```rust,no_run
 /// use testkit_core::{Transaction, TransactionManager, with_transaction};
 ///
+/// // Define a simple user type for the example
 /// #[derive(Debug, Clone)]
 /// struct User {
 ///     id: i32,
 ///     name: String,
 /// }
 ///
+/// // Define a transaction that retrieves a user from the database
 /// fn get_user<Ctx, Tx, Conn, E>(id: i32) -> impl Transaction<Context = Ctx, Item = User, Error = E>
 /// where
 ///     Ctx: TransactionManager<Tx, Conn, Error = E> + Send + Sync + 'static,
-///     Conn: Send + Sync + 'static,
 ///     Tx: Send + Sync + 'static,
+///     Conn: Send + Sync + 'static,
 ///     E: Send + Sync + 'static,
 /// {
 ///     with_transaction(move |ctx, tx| async move {
-///         // Use transaction to fetch user
+///         // Database operations would use the transaction...
+///         // For this example, we'll just create a mock user
 ///         Ok(User { id, name: "Example".to_string() })
 ///     })
 /// }
@@ -103,5 +108,47 @@ where
     WithTransactionTx {
         f,
         _phantom: PhantomData,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database::transaction::tests::{MockBackend, MockTransaction};
+    use crate::{DatabaseConfig, DatabaseName, TestDatabaseInstance};
+    use std::sync::{Arc, Mutex};
+
+    #[tokio::test]
+    async fn test_with_transaction() {
+        // Create a test database instance
+        let backend = MockBackend;
+        let config = DatabaseConfig::default();
+        let _db_name = DatabaseName::new(None);
+
+        let mut test_instance = TestDatabaseInstance::new(backend.clone(), config)
+            .await
+            .unwrap();
+
+        // A flag to track if our operation was executed
+        let operation_executed = Arc::new(Mutex::new(false));
+        let operation_executed_clone = operation_executed.clone();
+
+        // Create a transaction that sets the flag
+        let tx = with_transaction(move |_ctx, _tx: &mut MockTransaction| {
+            let op_executed = operation_executed_clone.clone();
+            async move {
+                let mut guard = op_executed.lock().unwrap();
+                *guard = true;
+                Ok(42) // Return some value
+            }
+        });
+
+        // Execute the transaction
+        let result = tx.execute(&mut test_instance).await;
+
+        // Check that the operation was executed and the result is correct
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 42);
+        assert!(*operation_executed.lock().unwrap());
     }
 }
