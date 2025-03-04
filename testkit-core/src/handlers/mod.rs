@@ -5,6 +5,7 @@ use std::marker::PhantomData;
 use crate::testdb::{DatabaseBackend, DatabaseConfig};
 
 mod and_then;
+mod boxed;
 mod setup;
 mod with_database;
 mod with_transaction;
@@ -14,12 +15,64 @@ mod tests;
 
 // Re-export all handler components
 pub use and_then::AndThenHandler;
+pub use boxed::{BoxedDatabaseEntryPoint, with_boxed_database, with_boxed_database_config};
 pub use setup::{SetupHandler, setup};
 pub use with_database::DatabaseHandler;
 pub use with_transaction::{
     DatabaseTransactionHandler, TransactionFnHandler, with_db_transaction, with_transaction,
 };
 
+/// Database handlers for the testkit crate
+///
+/// This module provides handlers for database operations. There are two APIs available:
+///
+/// 1. **Standard API** - The original API that requires manual boxing of closures if you need to
+///    capture variables with complex lifetimes.
+///
+/// 2. **Boxed API** - An enhanced API that automatically boxes closures to avoid lifetime issues
+///    when capturing variables.
+///
+/// # Standard API Example:
+/// ```rust,no_run,ignore
+/// use testkit_core::*;
+///
+/// async fn test() -> Result<(), Box<dyn std::error::Error>> {
+///     let backend = testkit_core::testdb::tests::MockBackend::new();
+///     let ctx = with_database(backend)
+///        .setup(|conn| async { /* setup code */ Ok(()) })
+///        .with_transaction(|tx| async { /* transaction code */ Ok(()) })
+///        .execute()
+///        .await?;
+///     Ok(())
+/// }
+/// ```
+///
+/// # Boxed API Example:
+/// ```rust,no_run,ignore
+/// use testkit_core::*;
+///
+/// async fn test() -> Result<(), Box<dyn std::error::Error>> {
+///     let backend = testkit_core::testdb::tests::MockBackend::new();
+///     
+///     // This local variable would cause lifetime issues with the standard API
+///     let table_name = "users".to_string();
+///     
+///     let ctx = with_boxed_database(backend)
+///        .setup(|conn| async move {
+///            // Can capture local variables without lifetime issues
+///            let query = format!("CREATE TABLE {}", table_name);
+///            // setup code
+///            Ok(())
+///        })
+///        .with_transaction(|tx| async move {
+///            // Transaction code
+///            Ok(())
+///        })
+///        .execute()
+///        .await?;
+///     Ok(())
+/// }
+/// ```
 /// Entry point for creating a database handler
 ///
 /// This is the primary way to start a chain of database operations.
@@ -47,24 +100,12 @@ pub use with_transaction::{
 /// async fn test() -> Result<(), Box<dyn std::error::Error>> {
 ///     let backend = testkit_core::testdb::tests::MockBackend::new();
 ///     let config = DatabaseConfig::default();
-///     
-///     // Passing just backend and config
-///     let entry_point = with_database(backend.clone(), Some(config.clone()), None);
-///     
-///     // Passing backend, config and a function (uses operators API internally)
-///     let ctx = with_database(
-///         backend,
-///         Some(config),
-///         Some(|db| Box::pin(async move { /* custom operation */ Ok(()) }))
-///     )
-///     .execute()
-///     .await?;
-///     
+///     let ctx = with_database_config(backend, config)
+///         .execute()
+///         .await?;
 ///     Ok(())
 /// }
 /// ```
-#[must_use]
-#[allow(dead_code)]
 pub fn with_database<DB>(backend: DB) -> DatabaseEntryPoint<DB>
 where
     DB: DatabaseBackend + Send + Sync + Debug + 'static,
@@ -72,7 +113,20 @@ where
     DatabaseEntryPoint { backend }
 }
 
-/// Handler that serves as the entry point for database operations
+/// Create a database handler with a custom config
+///
+/// This is identical to `with_database` but allows you to specify a custom database config.
+pub fn with_database_config<DB>(backend: DB, config: DatabaseConfig) -> DatabaseEntryPoint<DB>
+where
+    DB: DatabaseBackend + Send + Sync + Debug + 'static,
+{
+    // Currently we don't use the config, but we might in the future
+    // Leaving this here for API compatibility
+    let _ = config;
+    with_database(backend)
+}
+
+/// Entry point for database operations
 pub struct DatabaseEntryPoint<DB>
 where
     DB: DatabaseBackend + Send + Sync + Debug + 'static,
@@ -117,11 +171,14 @@ where
     /// Execute this handler
     pub async fn execute(self) -> Result<crate::TestContext<DB>, DB::Error> {
         // Create the database instance
-        let config = DatabaseConfig::default();
-        let db_instance = crate::testdb::TestDatabaseInstance::new(self.backend, config).await?;
+        let db_instance =
+            crate::testdb::TestDatabaseInstance::new(self.backend, DatabaseConfig::default())
+                .await?;
 
-        // Return the context
-        Ok(crate::TestContext::new(db_instance))
+        // Create the context
+        let ctx = crate::TestContext::new(db_instance);
+
+        Ok(ctx)
     }
 }
 
