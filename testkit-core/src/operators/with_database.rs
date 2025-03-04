@@ -28,10 +28,11 @@ where
 }
 
 /// WithDatabase implements the Transaction trait and represents a database operation
-pub struct WithDatabase<B, F>
+pub struct WithDatabase<B, F, Next>
 where
     B: DatabaseBackend + 'static + Clone + Debug + Send + Sync,
     F: Clone + Send + Sync + 'static,
+    Next: IntoTransaction<TestDatabaseInstance<B>> + Send + Sync,
 {
     /// The function to execute
     f: F,
@@ -41,14 +42,15 @@ where
     /// The backend instance
     #[allow(dead_code)]
     backend: B,
+    _phantom: PhantomData<Next>,
 }
 
 /// Create a new database operation with a function that returns a future
-pub fn with_database<B, F, Item, Error>(
+pub fn with_database<B, F, Next, Item, Error>(
     backend: B,
     config: DatabaseConfig,
     f: F,
-) -> WithDatabase<B, F>
+) -> WithDatabase<B, F, Next>
 where
     B: DatabaseBackend + 'static + Clone + Debug + Send + Sync,
     F: for<'a> FnMut(&'a mut TestDatabaseInstance<B>) -> BoxFuture<'a, Item, Error>
@@ -56,15 +58,21 @@ where
         + Send
         + Sync
         + 'static,
+    Next: IntoTransaction<TestDatabaseInstance<B>> + Send + Sync + 'static,
     Item: Send + Sync + 'static,
     Error: Send + Sync + 'static,
 {
-    WithDatabase { f, config, backend }
+    WithDatabase {
+        f,
+        config,
+        backend,
+        _phantom: PhantomData,
+    }
 }
 
 /// Implementation of the Transaction trait for WithDatabase
 #[async_trait]
-impl<B, F, Item, Error> Transaction for WithDatabase<B, F>
+impl<B, F, Next, Item, Error> Transaction for WithDatabase<B, F, Next>
 where
     B: DatabaseBackend + 'static + Clone + Debug + Send + Sync,
     F: for<'a> FnMut(&'a mut TestDatabaseInstance<B>) -> BoxFuture<'a, Item, Error>
@@ -72,11 +80,12 @@ where
         + Send
         + Sync
         + 'static,
-    Item: IntoTransaction<TestDatabaseInstance<B>> + Send + Sync + 'static,
-    Error: Send + Sync + 'static,
+    Next: IntoTransaction<TestDatabaseInstance<B>> + Send + Sync + 'static,
+    Item: Clone + Send + Sync + 'static,
+    Error: Clone + Send + Sync + 'static,
 {
     type Context = TestDatabaseInstance<B>;
-    type Item = Item;
+    type Item = TestDatabaseInstance<B>;
     type Error = Error;
 
     async fn execute(&self, _ctx: &mut Self::Context) -> Result<Self::Item, Self::Error> {
@@ -85,7 +94,11 @@ where
             .expect("Failed to create test database instance");
 
         let mut f = self.f.clone();
-        f(&mut tdb).await
+
+        match f(&mut tdb).await {
+            Ok(_) => Ok(tdb),
+            Err(e) => Err(e),
+        }
     }
 }
 
@@ -113,12 +126,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use sqlx::{PgPool, postgres::PgPoolOptions};
-    use std::future::Future;
-    use std::pin::Pin;
-
     use super::*;
     use crate::{DatabaseBackend, DatabaseName, DatabasePool, TestDatabaseConnection, result};
+    use sqlx::{PgPool, postgres::PgPoolOptions};
 
     // This is a unit test that doesn't actually require a database connection
     #[test]
@@ -205,10 +215,17 @@ mod tests {
 
         // Just verify that the with_database function can be called
         // and returns a struct of the expected type
-        let _ = with_database(TestBackend, DatabaseConfig::default(), |_db| {
-            Box::pin(async { Ok(()) })
-                as Pin<Box<dyn Future<Output = Result<(), TestError>> + Send + '_>>
-        });
+        let _tx: WithDatabase<TestBackend, _, Result<TestBackend, TestError>> = with_database::<
+            TestBackend,
+            _,
+            Result<TestBackend, TestError>,
+            TestBackend,
+            TestError,
+        >(
+            TestBackend,
+            DatabaseConfig::default(),
+            |_db| -> BoxFuture<'_, TestBackend, TestError> { Box::pin(async { Ok(TestBackend) }) },
+        );
 
         // Test passes if compilation succeeds
     }
@@ -398,6 +415,8 @@ mod tests {
     #[tokio::test]
     async fn test_with_database() {
         use super::*;
+        use crate::operators::then::Then;
+        use crate::result::{TxResult, result};
 
         // Create a backend for testing
         let backend =
@@ -418,24 +437,44 @@ mod tests {
                 }
             };
 
-        let res = with_database(backend.clone(), config.clone(), move |db| {
-            Box::pin(async move {
-                let conn = db.acquire_connection().await?;
-                let mut tx = conn.sqlx_pool().begin().await?;
-                sqlx::query(r#"CREATE TABLE IF NOT EXISTS test (id INTEGER PRIMARY KEY)"#)
-                    .execute(&mut *tx)
-                    .await?;
-                tx.commit().await?;
-                println!("Create table operation completed");
-                Ok::<(), PostgresError>(())
+        // Create the transaction and execute it
+        let res =
+            with_database::<PostgresBackend, _, Result<(), PostgresError>, (), PostgresError>(
+                backend.clone(),
+                config.clone(),
+                move |db| {
+                    Box::pin(async move {
+                        println!("Creating table operation: {:?}", db);
+                        let conn = db.acquire_connection().await?;
+                        let mut tx = conn.sqlx_pool().begin().await?;
+                        sqlx::query(r#"CREATE TABLE IF NOT EXISTS test (id INTEGER PRIMARY KEY)"#)
+                            .execute(&mut *tx)
+                            .await?;
+                        tx.commit().await?;
+                        println!("Create table operation completed");
+                        Ok::<(), PostgresError>(())
+                    })
+                },
+            )
+            .then(|db| {
+                // Return another with_database call instead of just a BoxFuture
+                Box::pin(async move {
+                    println!("Dropping table operation: {:?}", db);
+                    let conn = db.acquire_connection().await?;
+                    let mut tx = conn.sqlx_pool().begin().await?;
+                    sqlx::query(r#"DROP TABLE IF EXISTS test"#)
+                        .execute(&mut *tx)
+                        .await?;
+                    tx.commit().await?;
+                    println!("Dropping table operation completed");
+                    Ok(db.clone())
+                })
             })
-        })
-        .then(|_| {
-            println!("Create table operation completed");
-            result(Ok::<(), PostgresError>(()))
-        })
-        .execute(&mut test_instance)
-        .await;
+            .execute(&mut test_instance)
+            .await;
+
         println!("Result: {:?}", res);
+
+        println!("Test complete");
     }
 }
