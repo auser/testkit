@@ -89,6 +89,21 @@ where
     transaction_fn: TFn,
 }
 
+impl<DB, S, TFn> TransactionHandler<DB, S, TFn>
+where
+    DB: DatabaseBackend + Send + Sync + Debug + 'static,
+    S: Send + Sync + 'static,
+    TFn: Send + Sync + 'static,
+{
+    pub fn new(db: TestDatabaseInstance<DB>, setup_fn: S, transaction_fn: TFn) -> Self {
+        Self {
+            db,
+            setup_fn,
+            transaction_fn,
+        }
+    }
+}
+
 impl<DB, S, Fut, TFn, TxFut> TransactionHandler<DB, S, TFn>
 where
     DB: DatabaseBackend + Send + Sync + Debug + 'static,

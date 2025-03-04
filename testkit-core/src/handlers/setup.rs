@@ -43,11 +43,7 @@ where
             + 'static,
         TestContext<DB>: TransactionStarter<DB>,
     {
-        TransactionHandler {
-            db: self.db,
-            setup_fn: self.setup_fn,
-            transaction_fn,
-        }
+        TransactionHandler::new(self.db, self.setup_fn, transaction_fn)
     }
 
     /// Execute the setup operation only
