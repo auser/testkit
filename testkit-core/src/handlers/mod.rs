@@ -9,6 +9,9 @@ mod setup;
 mod with_database;
 mod with_transaction;
 
+#[cfg(test)]
+mod tests;
+
 // Re-export all handler components
 pub use and_then::AndThenHandler;
 pub use setup::{SetupHandler, setup};
@@ -86,10 +89,13 @@ where
         }
     }
 
-    /// Execute the database initialization
+    /// Execute this handler
     pub async fn execute(self) -> Result<crate::TestContext<DB>, DB::Error> {
+        // Create the database instance
         let config = DatabaseConfig::default();
         let db_instance = crate::testdb::TestDatabaseInstance::new(self.backend, config).await?;
+
+        // Return the context
         Ok(crate::TestContext::new(db_instance))
     }
 }
