@@ -4,8 +4,6 @@ use std::fmt::{Debug, Display};
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::Transaction;
-
 /// Configuration for database connections
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DatabaseConfig {
@@ -83,10 +81,12 @@ pub trait DatabasePool: Send + Sync + Clone {
 
 /// Trait defining a test database abstraction
 #[async_trait]
-pub trait DatabaseBackend: Send + Sync + Clone {
-    type Connection: Send + Sync;
+pub trait DatabaseBackend: Send + Sync + Clone + Debug {
+    type Connection: Send + Sync + Clone;
     type Pool: Send + Sync + DatabasePool<Connection = Self::Connection, Error = Self::Error>;
     type Error: Send + Sync + Clone + From<String> + Display + Debug;
+
+    async fn new(config: DatabaseConfig) -> Result<Self, Self::Error>;
 
     /// Create a new connection pool for the given database
     async fn create_pool(
@@ -150,6 +150,9 @@ where
 
         tracing::debug!("Creating connection pool for database: {}", db_name);
         let pool = backend.create_pool(&db_name, &config).await?;
+
+        tracing::debug!("Creating database: {}", db_name);
+        backend.create_database(&pool, &db_name).await?;
 
         let inst = Self {
             backend,

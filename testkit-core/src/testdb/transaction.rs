@@ -6,18 +6,21 @@ use async_trait::async_trait;
 /// rolling back transactions. It's used by the `with_transaction` operator to provide
 /// automatic transaction management.
 #[async_trait]
-pub trait TransactionManager<Tx, Conn>: Send + Sync {
+pub trait DBTransactionManager<Tx, Conn>: Send + Sync {
     /// The error type for transaction operations
     type Error: Send + Sync;
 
+    /// The transaction type returned by begin_transaction
+    type Tx: DatabaseTransaction<Error = Self::Error> + Send + Sync;
+
     /// Begin a new transaction
-    async fn begin_transaction(&mut self) -> Result<Tx, Self::Error>;
+    async fn begin_transaction(&mut self) -> Result<Self::Tx, Self::Error>;
 
     /// Commit a transaction
-    async fn commit_transaction(tx: &mut Tx) -> Result<(), Self::Error>;
+    async fn commit_transaction(tx: &mut Self::Tx) -> Result<(), Self::Error>;
 
     /// Rollback a transaction
-    async fn rollback_transaction(tx: &mut Tx) -> Result<(), Self::Error>;
+    async fn rollback_transaction(tx: &mut Self::Tx) -> Result<(), Self::Error>;
 }
 
 /// Trait for objects that represent database transactions
@@ -80,11 +83,21 @@ pub mod tests {
 
     // Mock connection type for testing
     #[derive(Debug, Clone)]
-    pub struct MockConnection;
+    pub struct MockConnection(i32);
+
+    impl MockConnection {
+        pub fn set_value(&mut self, value: i32) {
+            self.0 = value;
+        }
+
+        pub fn get_value(&self) -> i32 {
+            self.0
+        }
+    }
 
     impl TestDatabaseConnection for MockConnection {
         fn connection_string(&self) -> String {
-            "mock://localhost/test".to_string()
+            format!("mock://localhost/test{}", self.0)
         }
     }
 
@@ -98,7 +111,7 @@ pub mod tests {
         type Error = String;
 
         async fn acquire(&self) -> Result<Self::Connection, Self::Error> {
-            Ok(MockConnection)
+            Ok(MockConnection(0))
         }
 
         async fn release(&self, _conn: Self::Connection) -> Result<(), Self::Error> {
@@ -119,6 +132,10 @@ pub mod tests {
         type Connection = MockConnection;
         type Pool = MockPool;
         type Error = String;
+
+        async fn new(_config: DatabaseConfig) -> Result<Self, Self::Error> {
+            Ok(MockBackend)
+        }
 
         async fn create_pool(
             &self,
@@ -147,18 +164,19 @@ pub mod tests {
 
     // Mock implementation of TransactionManager for TestDatabaseInstance with MockBackend
     #[async_trait]
-    impl TransactionManager<MockTransaction, MockConnection> for TestDatabaseInstance<MockBackend> {
+    impl DBTransactionManager<MockTransaction, MockConnection> for TestDatabaseInstance<MockBackend> {
         type Error = String;
+        type Tx = MockTransaction;
 
-        async fn begin_transaction(&mut self) -> Result<MockTransaction, Self::Error> {
+        async fn begin_transaction(&mut self) -> Result<Self::Tx, Self::Error> {
             Ok(MockTransaction::default())
         }
 
-        async fn commit_transaction(tx: &mut MockTransaction) -> Result<(), Self::Error> {
+        async fn commit_transaction(tx: &mut Self::Tx) -> Result<(), Self::Error> {
             tx.commit().await
         }
 
-        async fn rollback_transaction(tx: &mut MockTransaction) -> Result<(), Self::Error> {
+        async fn rollback_transaction(tx: &mut Self::Tx) -> Result<(), Self::Error> {
             tx.rollback().await
         }
     }

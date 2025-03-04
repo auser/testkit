@@ -5,8 +5,10 @@ A Rust library for managing test databases with support for PostgreSQL, MySQL, a
 ## Usage
 
 ```rust
-with_database(backend, config, |db| { ... })
-    .then(|_| with_transaction(|ctx, tx| { ... create table ... }))
-    .then(|_| with_transaction(|ctx, tx| { ... insert user ... }))
-    .then(|_| with_transaction(|ctx, tx| { ... get user ... }))
+with_database(backend)
+    .await
+    .setup(|conn| async move { /* setup code */ })
+    .with_transaction(|tx| async move { /* transaction code */ })
+    .execute()
+    .await
 ```

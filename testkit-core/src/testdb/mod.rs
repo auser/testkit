@@ -6,4 +6,3 @@ pub use test_database::{
     DatabaseBackend, DatabaseConfig, DatabaseName, DatabasePool, TestDatabaseConnection,
     TestDatabaseInstance,
 };
-pub use transaction::*;
