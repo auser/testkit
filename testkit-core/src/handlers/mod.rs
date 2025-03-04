@@ -1,57 +1,66 @@
 use async_trait::async_trait;
 use std::fmt::Debug;
 
-use crate::testdb::{DatabaseBackend, transaction::DatabaseTransaction};
+use crate::testdb::{DatabaseBackend, DatabaseConfig, transaction::DatabaseTransaction};
 
+mod and_then;
 mod setup;
-use crate::TestContext;
-pub(crate) use setup::SetupHandler;
+mod with_database;
+mod with_transaction;
 
-/// Trait for handlers that can be executed in the context of a database
+// Re-export all handler components
+pub use and_then::{AndThenHandler, TransactionHandlerExt};
+pub use setup::{SetupHandler, setup};
+pub use with_database::DatabaseHandler;
+pub use with_transaction::{
+    DatabaseTransactionHandler, TransactionFnHandler, with_db_transaction, with_transaction,
+};
+
+/// Trait for handlers that can be executed in a transaction context
 #[async_trait]
-pub trait DatabaseHandler<DB>: Send + Sync
+pub trait TransactionHandler<DB>: Send + Sync
 where
     DB: DatabaseBackend + Send + Sync + Debug + 'static,
 {
+    /// The result type of this handler
+    type Item;
+    /// The error type
+    type Error: From<DB::Error> + Send + Sync;
+
     /// Execute the handler with the given context
-    async fn execute(&self, ctx: &mut TestContext<DB>) -> Result<(), DB::Error>;
+    async fn execute(self, ctx: &mut crate::TestContext<DB>) -> Result<Self::Item, Self::Error>;
 }
 
-/// Trait for handlers that can be executed in the context of a transaction
-#[async_trait]
-pub trait TransactionHandler<DB, T>: Send + Sync
+/// Types that can be converted into a transaction handler
+pub trait IntoTransactionHandler<DB>
 where
     DB: DatabaseBackend + Send + Sync + Debug + 'static,
-    T: DatabaseTransaction<Error = DB::Error> + Send + Sync + 'static,
 {
-    /// Execute the handler with the given transaction
-    #[allow(unused)]
-    async fn execute(&self, tx: &mut T) -> Result<(), DB::Error>;
+    /// The handler type
+    type Handler: TransactionHandler<DB, Item = Self::Item, Error = Self::Error>;
+    /// The result type
+    type Item;
+    /// The error type
+    type Error: From<DB::Error> + Send + Sync;
+
+    /// Convert this type into a transaction handler
+    fn into_transaction_handler(self) -> Self::Handler;
 }
 
-// Implementation of DatabaseHandler for FnOnce closures
-#[async_trait]
-impl<DB, F, Fut> DatabaseHandler<DB> for F
+/// Helper function to run a transaction handler with a database
+pub async fn run_with_database<DB, H>(
+    backend: DB,
+    handler: H,
+) -> Result<crate::TestContext<DB>, H::Error>
 where
     DB: DatabaseBackend + Send + Sync + Debug + 'static,
-    F: FnOnce(&mut TestContext<DB>) -> Fut + Send + Sync + Clone,
-    Fut: std::future::Future<Output = Result<(), DB::Error>> + Send + 'static,
+    H: TransactionHandler<DB>,
 {
-    async fn execute(&self, ctx: &mut TestContext<DB>) -> Result<(), DB::Error> {
-        self.clone()(ctx).await
-    }
-}
+    let config = DatabaseConfig::default();
+    let db_instance = crate::testdb::TestDatabaseInstance::new(backend, config).await?;
+    let mut ctx = crate::TestContext::new(db_instance);
 
-// Implementation of TransactionHandler for FnOnce closures
-#[async_trait]
-impl<DB, T, F, Fut> TransactionHandler<DB, T> for F
-where
-    DB: DatabaseBackend + Send + Sync + Debug + 'static,
-    T: DatabaseTransaction<Error = DB::Error> + Send + Sync + 'static,
-    F: FnOnce(&mut T) -> Fut + Send + Sync + Clone,
-    Fut: std::future::Future<Output = Result<(), DB::Error>> + Send + 'static,
-{
-    async fn execute(&self, tx: &mut T) -> Result<(), DB::Error> {
-        self.clone()(tx).await
-    }
+    handler.execute(&mut ctx).await?;
+
+    Ok(ctx)
 }
