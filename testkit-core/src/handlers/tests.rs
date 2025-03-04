@@ -349,9 +349,7 @@ async fn test_error_in_setup_with_transaction() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_database_entry_point_directly() {
     with_test_fixture("test_database_entry_point_directly", || async {
-        // Create a backend
         let backend = MockBackend::new();
-        println!("Created MockBackend");
 
         // Create the entry point directly
         use crate::handlers::DatabaseEntryPoint;
@@ -365,7 +363,12 @@ async fn test_database_entry_point_directly() {
             .expect("Failed to execute entry point");
 
         // Verify we have a valid context
-        assert!(ctx.db.name().as_str().starts_with("testkit_"));
+        assert!(
+            ctx.db.name().as_str().starts_with("testkit_"),
+            "Expected DB name to start with 'testkit_', got: {}",
+            ctx.db.name()
+        );
+
         println!("Test completed successfully");
     })
     .await;

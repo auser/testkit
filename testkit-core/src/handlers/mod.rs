@@ -38,6 +38,31 @@ pub use with_transaction::{
 ///     Ok(())
 /// }
 /// ```
+///
+/// You can also provide a custom database config and an optional operation function:
+///
+/// ```rust,no_run,ignore
+/// use testkit_core::*;
+///
+/// async fn test() -> Result<(), Box<dyn std::error::Error>> {
+///     let backend = testkit_core::testdb::tests::MockBackend::new();
+///     let config = DatabaseConfig::default();
+///     
+///     // Passing just backend and config
+///     let entry_point = with_database(backend.clone(), Some(config.clone()), None);
+///     
+///     // Passing backend, config and a function (uses operators API internally)
+///     let ctx = with_database(
+///         backend,
+///         Some(config),
+///         Some(|db| Box::pin(async move { /* custom operation */ Ok(()) }))
+///     )
+///     .execute()
+///     .await?;
+///     
+///     Ok(())
+/// }
+/// ```
 #[must_use]
 #[allow(dead_code)]
 pub fn with_database<DB>(backend: DB) -> DatabaseEntryPoint<DB>
@@ -141,8 +166,9 @@ where
             + 'static,
     {
         // Create the database instance
-        let config = DatabaseConfig::default();
-        let db_instance = crate::testdb::TestDatabaseInstance::new(self.backend, config).await?;
+        let db_instance =
+            crate::testdb::TestDatabaseInstance::new(self.backend, DatabaseConfig::default())
+                .await?;
 
         // Run the setup function
         db_instance.setup(self.setup_fn).await?;
@@ -182,8 +208,9 @@ where
         F: FnOnce(&mut <DB as DatabaseBackend>::Connection) -> TFut + Send + Sync + 'static,
     {
         // Create the database instance
-        let config = DatabaseConfig::default();
-        let db_instance = crate::testdb::TestDatabaseInstance::new(self.backend, config).await?;
+        let db_instance =
+            crate::testdb::TestDatabaseInstance::new(self.backend, DatabaseConfig::default())
+                .await?;
 
         // Run the setup function
         db_instance.setup(self.setup_fn).await?;
@@ -223,8 +250,9 @@ where
         F: FnOnce(&mut <DB as DatabaseBackend>::Connection) -> Fut + Send + Sync + 'static,
     {
         // Create the database instance
-        let config = DatabaseConfig::default();
-        let db_instance = crate::testdb::TestDatabaseInstance::new(self.backend, config).await?;
+        let db_instance =
+            crate::testdb::TestDatabaseInstance::new(self.backend, DatabaseConfig::default())
+                .await?;
 
         // Create a context
         let ctx = crate::TestContext::new(db_instance.clone());

@@ -12,3 +12,11 @@ with_database(backend)
     .execute()
     .await
 ```
+
+## Error Handling
+
+All functions return `Result<TestContext<DB>, Error>` or `Result<T, Error>` where appropriate, allowing for proper error handling in your tests.
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
