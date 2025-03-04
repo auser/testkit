@@ -67,6 +67,24 @@ let handler = handler.with_transaction(|conn| async {
 let ctx = handler.execute().await?;
 ```
 
+### Macro Usage
+
+The `testkit` crate also provides a macro for creating test fixtures:
+
+```rust
+```rust
+// Create a database entry point
+let handler = with_database!(backend)
+    .setup!(|conn| async {
+        // Your setup code here
+        Ok(())
+    })
+    .with_transaction!(|conn| async {
+        // Your transaction code here
+        Ok(())
+    }).execute().await.unwrap();
+```
+
 ## Error Handling
 
 All functions return `Result<TestContext<DB>, Error>` or `Result<T, Error>` where appropriate, allowing for proper error handling in your tests.
