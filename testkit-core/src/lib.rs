@@ -252,7 +252,7 @@ pub mod tests {
 
         // Define a mock error type
         #[derive(Debug, Clone)]
-        pub struct MockError(String);
+        pub struct MockError(pub String);
 
         impl From<String> for MockError {
             fn from(s: String) -> Self {

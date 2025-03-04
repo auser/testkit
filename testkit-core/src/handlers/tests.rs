@@ -1,8 +1,4 @@
-//! Tests for the handlers and fluent API
-
 use std::fmt::Debug;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use async_trait::async_trait;
@@ -390,7 +386,7 @@ async fn test_isolated_transaction() {
             .expect("Failed to create test database instance");
 
         // Create a test context
-        let mut ctx = TestContext::new(db_instance);
+        let ctx = TestContext::new(db_instance);
 
         // Mark transaction as called directly
         println!("Directly marking transaction called");
