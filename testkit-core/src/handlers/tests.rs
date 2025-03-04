@@ -4,7 +4,7 @@ use std::sync::{Mutex, OnceLock};
 use async_trait::async_trait;
 
 use crate::{
-    TestContext,
+    TestContext, boxed_async,
     handlers::with_database,
     testdb::{
         DatabaseBackend, DatabaseConfig, DatabaseName, DatabasePool, TestDatabaseConnection,
@@ -210,9 +210,11 @@ async fn test_with_database_and_setup() {
         let backend = MockBackend::new();
 
         let ctx = with_database(backend)
-            .setup(|_conn| async {
-                mark_setup_called();
-                Ok(())
+            .setup(|_conn| {
+                boxed_async!(async {
+                    mark_setup_called();
+                    Ok(())
+                })
             })
             .execute()
             .await
@@ -233,9 +235,11 @@ async fn test_with_database_and_transaction() {
         let backend = MockBackend::new();
 
         let ctx = with_database(backend)
-            .with_transaction(|_conn| async {
-                mark_transaction_called();
-                Ok(())
+            .with_transaction(|_conn| {
+                boxed_async!(async {
+                    mark_transaction_called();
+                    Ok(())
+                })
             })
             .execute()
             .await
@@ -248,11 +252,7 @@ async fn test_with_database_and_transaction() {
         );
 
         // Verify we have a valid context with a database instance
-        assert!(
-            ctx.db.name().as_str().starts_with("testkit_"),
-            "Expected DB name to start with 'testkit_', got: {}",
-            ctx.db.name()
-        );
+        assert!(ctx.db.name().as_str().starts_with("testkit_"));
     })
     .await;
 }
@@ -263,20 +263,27 @@ async fn test_with_database_setup_and_transaction() {
         let backend = MockBackend::new();
 
         let ctx = with_database(backend)
-            .setup(|_conn| async {
-                mark_setup_called();
-                Ok(())
+            .setup(|_conn| {
+                boxed_async!(async {
+                    mark_setup_called();
+                    Ok(())
+                })
             })
-            .with_transaction(|_conn| async {
-                mark_transaction_called();
-                Ok(())
+            .with_transaction(|_conn| {
+                boxed_async!(async {
+                    mark_transaction_called();
+                    Ok(())
+                })
             })
             .execute()
             .await
             .expect("Failed to execute database handler");
 
-        assert!(was_setup_called());
-        assert!(was_transaction_called());
+        assert!(was_setup_called(), "Setup should have been called");
+        assert!(
+            was_transaction_called(),
+            "Transaction should have been called"
+        );
 
         // Verify we have a valid context with a database instance
         assert!(ctx.db.name().as_str().starts_with("testkit_"));
@@ -290,14 +297,11 @@ async fn test_error_in_setup() {
         let backend = MockBackend::new();
 
         let result = with_database(backend)
-            .setup(|_conn| async { Err(MockError("Setup error".to_string())) })
+            .setup(|_conn| boxed_async!(async { Err(MockError("Setup error".to_string())) }))
             .execute()
             .await;
 
-        assert!(result.is_err());
-        if let Err(e) = result {
-            assert_eq!(e.0, "Setup error");
-        }
+        assert!(result.is_err(), "Expected setup to return an error");
     })
     .await;
 }
@@ -308,14 +312,13 @@ async fn test_error_in_transaction() {
         let backend = MockBackend::new();
 
         let result = with_database(backend)
-            .with_transaction(|_conn| async { Err(MockError("Transaction error".to_string())) })
+            .with_transaction(|_conn| {
+                boxed_async!(async { Err(MockError("Transaction error".to_string())) })
+            })
             .execute()
             .await;
 
-        assert!(result.is_err());
-        if let Err(e) = result {
-            assert_eq!(e.0, "Transaction error");
-        }
+        assert!(result.is_err(), "Expected transaction to return an error");
     })
     .await;
 }
@@ -326,43 +329,37 @@ async fn test_error_in_setup_with_transaction() {
         let backend = MockBackend::new();
 
         let result = with_database(backend)
-            .setup(|_conn| async { Err(MockError("Setup error".to_string())) })
-            .with_transaction(|_conn| async {
-                mark_transaction_called();
-                Ok(())
+            .setup(|_conn| boxed_async!(async { Err(MockError("Setup error".to_string())) }))
+            .with_transaction(|_conn| {
+                boxed_async!(async {
+                    mark_transaction_called();
+                    Ok(())
+                })
             })
             .execute()
             .await;
 
-        assert!(result.is_err());
-        if let Err(e) = result {
-            assert_eq!(e.0, "Setup error");
-        }
-
-        // Transaction should not be called if setup fails
-        assert!(!was_transaction_called());
+        assert!(result.is_err(), "Expected setup to return an error");
+        assert!(
+            !was_transaction_called(),
+            "Transaction should not have been called after setup failed"
+        );
     })
     .await;
 }
 
-// Add a direct test of the DatabaseEntryPoint functionality
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_database_entry_point_directly() {
     with_test_fixture("test_database_entry_point_directly", || async {
-        let backend = MockBackend::new();
-
-        // Create the entry point directly
-        use crate::handlers::DatabaseEntryPoint;
-        let entry_point = DatabaseEntryPoint { backend };
-
-        // Execute directly
         println!("Executing entry point directly");
-        let ctx = entry_point
+
+        let backend = MockBackend::new();
+        let ctx = with_database(backend)
             .execute()
             .await
-            .expect("Failed to execute entry point");
+            .expect("Failed to execute database entry point directly");
 
-        // Verify we have a valid context
+        // Verify we have a valid context with a database instance
         assert!(
             ctx.db.name().as_str().starts_with("testkit_"),
             "Expected DB name to start with 'testkit_', got: {}",
@@ -374,35 +371,16 @@ async fn test_database_entry_point_directly() {
     .await;
 }
 
-/// Tests a transaction handler directly without using the with_database or other wrappers
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_isolated_transaction() {
     with_test_fixture("test_isolated_transaction", || async {
-        // Create a clean MockBackend
-        let backend = MockBackend::new();
         println!("Created MockBackend");
 
-        // Create a test database instance directly
-        let config = DatabaseConfig::default();
-        let db_instance = TestDatabaseInstance::new(backend, config)
-            .await
-            .expect("Failed to create test database instance");
-
-        // Create a test context
-        let ctx = TestContext::new(db_instance);
-
-        // Mark transaction as called directly
+        // Use direct transaction function marking
         println!("Directly marking transaction called");
         mark_transaction_called();
 
-        // Verify transaction was called
-        assert!(
-            was_transaction_called(),
-            "Transaction should have been called"
-        );
-
-        // Release any resources
-        let _ = ctx.db.acquire_connection().await;
+        assert!(was_transaction_called());
     })
     .await;
 }

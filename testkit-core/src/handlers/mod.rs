@@ -13,8 +13,6 @@ mod with_transaction;
 #[cfg(test)]
 mod tests;
 
-pub mod db;
-
 // Re-export all handler components
 pub use and_then::AndThenHandler;
 pub use boxed::{BoxedDatabaseEntryPoint, with_boxed_database, with_boxed_database_config};
@@ -75,258 +73,12 @@ pub use with_transaction::{
 ///     Ok(())
 /// }
 /// ```
-/// Entry point for creating a database handler
-///
-/// This is the primary way to start a chain of database operations.
-///
-/// # Example
-/// ```rust,no_run,ignore
-/// use testkit_core::*;
-///
-/// async fn test() -> Result<(), Box<dyn std::error::Error>> {
-///     let backend = testkit_core::testdb::tests::MockBackend::new();
-///     let ctx = with_database(backend)
-///        .setup(|conn| async { /* setup code */ Ok(()) })
-///        .with_transaction(|tx| async { /* transaction code */ Ok(()) })
-///        .execute()
-///        .await?;
-///     Ok(())
-/// }
-/// ```
-///
-/// You can also provide a custom database config and an optional operation function:
-///
-/// ```rust,no_run,ignore
-/// use testkit_core::*;
-///
-/// async fn test() -> Result<(), Box<dyn std::error::Error>> {
-///     let backend = testkit_core::testdb::tests::MockBackend::new();
-///     let config = DatabaseConfig::default();
-///     let ctx = with_database_config(backend, config)
-///         .execute()
-///         .await?;
-///     Ok(())
-/// }
-/// ```
-pub fn with_database<DB>(backend: DB) -> DatabaseEntryPoint<DB>
-where
-    DB: DatabaseBackend + Send + Sync + Debug + 'static,
-{
-    DatabaseEntryPoint { backend }
-}
+// Re-export boxed API as the primary API
+pub use boxed::{
+    with_boxed_database as with_database, with_boxed_database_config as with_database_config,
+};
 
-/// Create a database handler with a custom config
-///
-/// This is identical to `with_database` but allows you to specify a custom database config.
-pub fn with_database_config<DB>(backend: DB, config: DatabaseConfig) -> DatabaseEntryPoint<DB>
-where
-    DB: DatabaseBackend + Send + Sync + Debug + 'static,
-{
-    // Currently we don't use the config, but we might in the future
-    // Leaving this here for API compatibility
-    let _ = config;
-    with_database(backend)
-}
-
-/// Entry point for database operations
-pub struct DatabaseEntryPoint<DB>
-where
-    DB: DatabaseBackend + Send + Sync + Debug + 'static,
-{
-    backend: DB,
-}
-
-impl<DB> DatabaseEntryPoint<DB>
-where
-    DB: DatabaseBackend + Send + Sync + Debug + 'static,
-{
-    /// Initialize a new database and set it up
-    pub fn setup<S, Fut>(self, setup_fn: S) -> DatabaseSetupHandler<DB, S>
-    where
-        Fut: std::future::Future<Output = Result<(), DB::Error>> + Send + 'static,
-        S: FnOnce(&mut <DB::Pool as crate::DatabasePool>::Connection) -> Fut
-            + Send
-            + Sync
-            + 'static,
-    {
-        DatabaseSetupHandler {
-            backend: self.backend,
-            setup_fn,
-        }
-    }
-
-    /// Initialize a database with a transaction
-    pub fn with_transaction<F, Fut>(
-        self,
-        transaction_fn: F,
-    ) -> DatabaseWithTransactionHandler<DB, F>
-    where
-        Fut: std::future::Future<Output = Result<(), DB::Error>> + Send + 'static,
-        F: FnOnce(&mut <DB as DatabaseBackend>::Connection) -> Fut + Send + Sync + 'static,
-    {
-        DatabaseWithTransactionHandler {
-            backend: self.backend,
-            transaction_fn,
-        }
-    }
-
-    /// Execute this handler
-    pub async fn execute(self) -> Result<crate::TestContext<DB>, DB::Error> {
-        // Create the database instance
-        let db_instance =
-            crate::testdb::TestDatabaseInstance::new(self.backend, DatabaseConfig::default())
-                .await?;
-
-        // Create the context
-        let ctx = crate::TestContext::new(db_instance);
-
-        Ok(ctx)
-    }
-}
-
-/// Handler that initializes a database and then runs a setup function
-pub struct DatabaseSetupHandler<DB, S>
-where
-    DB: DatabaseBackend + Send + Sync + Debug + 'static,
-    S: Send + Sync + 'static,
-{
-    backend: DB,
-    setup_fn: S,
-}
-
-impl<DB, S> DatabaseSetupHandler<DB, S>
-where
-    DB: DatabaseBackend + Send + Sync + Debug + 'static,
-    S: Send + Sync + 'static,
-{
-    /// Add a transaction function to this handler
-    pub fn with_transaction<F, Fut>(
-        self,
-        transaction_fn: F,
-    ) -> DatabaseSetupWithTransactionHandler<DB, S, F>
-    where
-        Fut: std::future::Future<Output = Result<(), DB::Error>> + Send + 'static,
-        F: FnOnce(&mut <DB as DatabaseBackend>::Connection) -> Fut + Send + Sync + 'static,
-    {
-        DatabaseSetupWithTransactionHandler {
-            backend: self.backend,
-            setup_fn: self.setup_fn,
-            transaction_fn,
-        }
-    }
-
-    /// Execute this handler
-    pub async fn execute<Fut>(self) -> Result<crate::TestContext<DB>, DB::Error>
-    where
-        Fut: std::future::Future<Output = Result<(), DB::Error>> + Send + 'static,
-        S: FnOnce(&mut <DB::Pool as crate::DatabasePool>::Connection) -> Fut
-            + Send
-            + Sync
-            + 'static,
-    {
-        // Create the database instance
-        let db_instance =
-            crate::testdb::TestDatabaseInstance::new(self.backend, DatabaseConfig::default())
-                .await?;
-
-        // Run the setup function
-        db_instance.setup(self.setup_fn).await?;
-
-        // Return the context
-        Ok(crate::TestContext::new(db_instance))
-    }
-}
-
-/// Handler that initializes a database and then runs a setup function followed by a transaction
-pub struct DatabaseSetupWithTransactionHandler<DB, S, F>
-where
-    DB: DatabaseBackend + Send + Sync + Debug + 'static,
-    S: Send + Sync + 'static,
-    F: Send + Sync + 'static,
-{
-    backend: DB,
-    setup_fn: S,
-    transaction_fn: F,
-}
-
-impl<DB, S, F> DatabaseSetupWithTransactionHandler<DB, S, F>
-where
-    DB: DatabaseBackend + Send + Sync + Debug + 'static,
-    S: Send + Sync + 'static,
-    F: Send + Sync + 'static,
-{
-    /// Execute this handler
-    pub async fn execute<SFut, TFut>(self) -> Result<crate::TestContext<DB>, DB::Error>
-    where
-        SFut: std::future::Future<Output = Result<(), DB::Error>> + Send + 'static,
-        S: FnOnce(&mut <DB::Pool as crate::DatabasePool>::Connection) -> SFut
-            + Send
-            + Sync
-            + 'static,
-        TFut: std::future::Future<Output = Result<(), DB::Error>> + Send + 'static,
-        F: FnOnce(&mut <DB as DatabaseBackend>::Connection) -> TFut + Send + Sync + 'static,
-    {
-        // Create the database instance
-        let db_instance =
-            crate::testdb::TestDatabaseInstance::new(self.backend, DatabaseConfig::default())
-                .await?;
-
-        // Run the setup function
-        db_instance.setup(self.setup_fn).await?;
-
-        // Create a context
-        let ctx = crate::TestContext::new(db_instance.clone());
-
-        // Run the transaction
-        let mut conn = ctx.db.acquire_connection().await?;
-        (self.transaction_fn)(&mut conn).await?;
-        ctx.db.release_connection(conn).await?;
-
-        // Return the context
-        Ok(ctx)
-    }
-}
-
-/// Handler that initializes a database and then runs a transaction
-pub struct DatabaseWithTransactionHandler<DB, F>
-where
-    DB: DatabaseBackend + Send + Sync + Debug + 'static,
-    F: Send + Sync + 'static,
-{
-    backend: DB,
-    transaction_fn: F,
-}
-
-impl<DB, F> DatabaseWithTransactionHandler<DB, F>
-where
-    DB: DatabaseBackend + Send + Sync + Debug + 'static,
-    F: Send + Sync + 'static,
-{
-    /// Execute this handler
-    pub async fn execute<Fut>(self) -> Result<crate::TestContext<DB>, DB::Error>
-    where
-        Fut: std::future::Future<Output = Result<(), DB::Error>> + Send + 'static,
-        F: FnOnce(&mut <DB as DatabaseBackend>::Connection) -> Fut + Send + Sync + 'static,
-    {
-        // Create the database instance
-        let db_instance =
-            crate::testdb::TestDatabaseInstance::new(self.backend, DatabaseConfig::default())
-                .await?;
-
-        // Create a context
-        let ctx = crate::TestContext::new(db_instance.clone());
-
-        // Run the transaction
-        let mut conn = ctx.db.acquire_connection().await?;
-        (self.transaction_fn)(&mut conn).await?;
-        ctx.db.release_connection(conn).await?;
-
-        // Return the context
-        Ok(ctx)
-    }
-}
-
-/// Trait for handlers that can be executed in a transaction context
+/// A trait for handlers that can work with transactions
 #[async_trait]
 pub trait TransactionHandler<DB>: Send + Sync
 where
@@ -441,7 +193,7 @@ where
     }
 }
 
-/// Types that can be converted into a transaction handler
+/// A trait for converting types into transaction handlers
 pub trait IntoTransactionHandler<DB>
 where
     DB: DatabaseBackend + Send + Sync + Debug + 'static,
@@ -457,7 +209,7 @@ where
     fn into_transaction_handler(self) -> Self::Handler;
 }
 
-/// Helper function to run a transaction handler with a database
+/// Helper function to run a handler with a new database
 pub async fn run_with_database<DB, H>(
     backend: DB,
     handler: H,
@@ -466,18 +218,10 @@ where
     DB: DatabaseBackend + Send + Sync + Debug + 'static,
     H: TransactionHandler<DB>,
 {
-    let config = DatabaseConfig::default();
-    let db_instance = crate::testdb::TestDatabaseInstance::new(backend, config).await?;
-    let mut ctx = crate::TestContext::new(db_instance);
-
-    handler.execute(&mut ctx).await?;
-
-    Ok(ctx)
+    handler.run_with_database(backend).await
 }
 
-// Wrapper types to handle error conversion
-
-/// Wrapper for SetupHandler that converts error types
+/// Helper wrapper for SetupHandler
 pub struct SetupHandlerWrapper<DB, S, E>
 where
     DB: DatabaseBackend + Send + Sync + Debug + 'static,
@@ -506,19 +250,19 @@ where
 impl<DB, S, Fut, E> TransactionHandler<DB> for SetupHandlerWrapper<DB, S, E>
 where
     DB: DatabaseBackend + Send + Sync + Debug + 'static,
-    S: FnOnce(&mut <DB::Pool as crate::DatabasePool>::Connection) -> Fut + Send + Sync + 'static,
     Fut: std::future::Future<Output = Result<(), DB::Error>> + Send + 'static,
+    S: FnOnce(&mut <DB::Pool as crate::DatabasePool>::Connection) -> Fut + Send + Sync + 'static,
     E: From<DB::Error> + Send + Sync,
 {
     type Item = ();
     type Error = E;
 
     async fn execute(self, ctx: &mut crate::TestContext<DB>) -> Result<Self::Item, Self::Error> {
-        self.inner.execute(ctx).await.map_err(|e| e.into())
+        Ok(self.inner.execute(ctx).await?)
     }
 }
 
-/// Wrapper for TransactionFnHandler that converts error types
+/// Helper wrapper for TransactionFnHandler
 pub struct TransactionFnHandlerWrapper<DB, F, E>
 where
     DB: DatabaseBackend + Send + Sync + Debug + 'static,
@@ -547,19 +291,19 @@ where
 impl<DB, F, Fut, E> TransactionHandler<DB> for TransactionFnHandlerWrapper<DB, F, E>
 where
     DB: DatabaseBackend + Send + Sync + Debug + 'static,
-    F: FnOnce(&mut <DB as DatabaseBackend>::Connection) -> Fut + Send + Sync + 'static,
     Fut: std::future::Future<Output = Result<(), DB::Error>> + Send + 'static,
+    F: FnOnce(&mut <DB as DatabaseBackend>::Connection) -> Fut + Send + Sync + 'static,
     E: From<DB::Error> + Send + Sync,
 {
     type Item = ();
     type Error = E;
 
     async fn execute(self, ctx: &mut crate::TestContext<DB>) -> Result<Self::Item, Self::Error> {
-        self.inner.execute(ctx).await.map_err(|e| e.into())
+        Ok(self.inner.execute(ctx).await?)
     }
 }
 
-/// Wrapper for DatabaseTransactionHandler that converts error types
+/// Helper wrapper for DatabaseTransactionHandler
 pub struct DbTransactionHandlerWrapper<DB, F, E>
 where
     DB: DatabaseBackend + Send + Sync + Debug + 'static,
@@ -588,14 +332,14 @@ where
 impl<DB, F, Fut, E> TransactionHandler<DB> for DbTransactionHandlerWrapper<DB, F, E>
 where
     DB: DatabaseBackend + Send + Sync + Debug + 'static,
-    F: FnOnce(&mut <DB as DatabaseBackend>::Connection) -> Fut + Send + Sync + 'static,
     Fut: std::future::Future<Output = Result<(), DB::Error>> + Send + 'static,
+    F: FnOnce(&mut <DB as DatabaseBackend>::Connection) -> Fut + Send + Sync + 'static,
     E: From<DB::Error> + Send + Sync,
 {
     type Item = crate::TestContext<DB>;
     type Error = E;
 
     async fn execute(self, ctx: &mut crate::TestContext<DB>) -> Result<Self::Item, Self::Error> {
-        self.inner.execute(ctx).await.map_err(|e| e.into())
+        Ok(self.inner.execute(ctx).await?)
     }
 }

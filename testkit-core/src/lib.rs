@@ -248,7 +248,7 @@ pub mod tests {
             }
 
             fn connection_string(&self) -> String {
-                "mock://test".to_string()
+                "mock://pool".to_string()
             }
         }
 
@@ -258,21 +258,27 @@ pub mod tests {
 
         impl From<String> for MockError {
             fn from(s: String) -> Self {
-                Self(s)
+                MockError(s)
             }
         }
 
         impl std::fmt::Display for MockError {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "MockError")
+                write!(f, "Mock Error: {}", self.0)
             }
         }
 
         impl std::error::Error for MockError {}
 
-        // Define a mock backend type
+        // Define a mock database backend
         #[derive(Debug, Clone)]
         pub struct MockBackend;
+
+        impl MockBackend {
+            pub fn new() -> Self {
+                MockBackend
+            }
+        }
 
         #[async_trait]
         impl DatabaseBackend for MockBackend {
@@ -281,7 +287,7 @@ pub mod tests {
             type Error = MockError;
 
             async fn new(_config: DatabaseConfig) -> Result<Self, Self::Error> {
-                Ok(Self)
+                Ok(MockBackend)
             }
 
             async fn create_pool(
@@ -305,7 +311,7 @@ pub mod tests {
             }
 
             fn connection_string(&self, _name: &DatabaseName) -> String {
-                "mock://test".to_string()
+                "mock://database".to_string()
             }
         }
     }

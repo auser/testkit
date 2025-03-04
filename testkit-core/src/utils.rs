@@ -19,6 +19,25 @@ macro_rules! boxed_async {
     };
 }
 
+/// Macro to implement TransactionHandler for a type
+///
+/// This macro makes it easier to implement the TransactionHandler trait for types
+/// that work with databases. It automatically handles the Box::pin wrapping for async functions.
+#[macro_export]
+macro_rules! impl_transaction_handler {
+    (
+        $type:ty, $db:ty, $item:ty, $error:ty,
+        async fn execute($self:ident, $ctx:ident: &mut TestContext<$db_type:ty>) -> Result<$result:ty, $err:ty> $body:block
+    ) => {
+        impl crate::handlers::TransactionHandler<$db> for $type {
+            type Item = $item;
+            type Error = $error;
+
+            async fn execute($self, $ctx: &mut crate::TestContext<$db_type>) -> Result<$result, $err> $body
+        }
+    };
+}
+
 /// Boxes an async closure to handle lifetime issues
 ///
 /// This function takes a closure that returns a Future and wraps it in a

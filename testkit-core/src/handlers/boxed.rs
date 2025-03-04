@@ -4,10 +4,13 @@ use std::marker::PhantomData;
 use std::pin::Pin;
 
 use crate::DatabasePool;
+use crate::TestContext;
+use crate::handlers::TransactionHandler;
 use crate::testdb::DatabaseBackend;
 use crate::testdb::DatabaseConfig;
 use crate::testdb::DatabaseName;
 use crate::testdb::TestDatabaseConnection;
+use async_trait::async_trait;
 
 /// Entry point for database operations with automatic boxing of closures
 ///
@@ -91,6 +94,23 @@ where
         }
     }
 
+    /// Initialize a database with a transaction
+    pub fn with_transaction<F>(self, transaction_fn: F) -> BoxedTransactionOnlyHandler<DB>
+    where
+        F: for<'a> FnOnce(
+                &'a mut <DB as DatabaseBackend>::Connection,
+            )
+                -> Pin<Box<dyn Future<Output = Result<(), DB::Error>> + Send + 'a>>
+            + Send
+            + Sync
+            + 'static,
+    {
+        BoxedTransactionOnlyHandler {
+            backend: self.backend,
+            transaction_fn: Box::new(transaction_fn),
+        }
+    }
+
     /// Execute this handler
     pub async fn execute(self) -> Result<crate::TestContext<DB>, DB::Error> {
         // Create the database instance
@@ -100,6 +120,82 @@ where
 
         // Create and return the context
         Ok(crate::TestContext::new(db_instance))
+    }
+}
+
+#[async_trait]
+impl<DB> TransactionHandler<DB> for BoxedDatabaseEntryPoint<DB>
+where
+    DB: DatabaseBackend + Send + Sync + Debug + 'static,
+{
+    type Item = TestContext<DB>;
+    type Error = DB::Error;
+
+    async fn execute(self, _ctx: &mut TestContext<DB>) -> Result<Self::Item, Self::Error> {
+        // Create the database instance
+        let db_instance =
+            crate::testdb::TestDatabaseInstance::new(self.backend, DatabaseConfig::default())
+                .await?;
+
+        // Create and return the context
+        Ok(crate::TestContext::new(db_instance))
+    }
+}
+
+/// Handler that stores just a transaction function without setup
+pub struct BoxedTransactionOnlyHandler<DB>
+where
+    DB: DatabaseBackend + Send + Sync + Debug + 'static,
+{
+    backend: DB,
+    transaction_fn: Box<
+        dyn for<'a> FnOnce(
+                &'a mut <DB as DatabaseBackend>::Connection,
+            )
+                -> Pin<Box<dyn Future<Output = Result<(), DB::Error>> + Send + 'a>>
+            + Send
+            + Sync,
+    >,
+}
+
+impl<DB> BoxedTransactionOnlyHandler<DB>
+where
+    DB: DatabaseBackend + Send + Sync + Debug + 'static,
+{
+    /// Execute this handler
+    pub async fn execute(self) -> Result<crate::TestContext<DB>, DB::Error> {
+        // Create the database instance
+        let db_instance =
+            crate::testdb::TestDatabaseInstance::new(self.backend, DatabaseConfig::default())
+                .await?;
+
+        // Create the context
+        let ctx = crate::TestContext::new(db_instance.clone());
+
+        // TRANSACTION: Get a connection for the transaction
+        let mut conn = ctx.db.pool.acquire().await?;
+
+        // Call the transaction function with a reference to the connection
+        (self.transaction_fn)(&mut conn).await?;
+
+        // Release the connection
+        ctx.db.pool.release(conn).await?;
+
+        // Return the context
+        Ok(ctx)
+    }
+}
+
+#[async_trait]
+impl<DB> TransactionHandler<DB> for BoxedTransactionOnlyHandler<DB>
+where
+    DB: DatabaseBackend + Send + Sync + Debug + 'static,
+{
+    type Item = TestContext<DB>;
+    type Error = DB::Error;
+
+    async fn execute(self, _ctx: &mut TestContext<DB>) -> Result<Self::Item, Self::Error> {
+        self.execute().await
     }
 }
 
@@ -153,6 +249,19 @@ where
     }
 }
 
+#[async_trait]
+impl<DB> TransactionHandler<DB> for BoxedSetupHandler<DB>
+where
+    DB: DatabaseBackend + Send + Sync + Debug + 'static,
+{
+    type Item = TestContext<DB>;
+    type Error = DB::Error;
+
+    async fn execute(self, _ctx: &mut TestContext<DB>) -> Result<Self::Item, Self::Error> {
+        self.execute().await
+    }
+}
+
 impl<DB> BoxedTransactionHandler<DB>
 where
     DB: DatabaseBackend + Send + Sync + Debug + 'static,
@@ -187,6 +296,19 @@ where
 
         // Return the context
         Ok(ctx)
+    }
+}
+
+#[async_trait]
+impl<DB> TransactionHandler<DB> for BoxedTransactionHandler<DB>
+where
+    DB: DatabaseBackend + Send + Sync + Debug + 'static,
+{
+    type Item = TestContext<DB>;
+    type Error = DB::Error;
+
+    async fn execute(self, _ctx: &mut TestContext<DB>) -> Result<Self::Item, Self::Error> {
+        self.execute().await
     }
 }
 
