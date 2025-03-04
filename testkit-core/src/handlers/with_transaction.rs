@@ -6,7 +6,6 @@ use std::marker::PhantomData;
 use crate::{
     DatabaseBackend, TestContext,
     handlers::{IntoTransactionHandler, TransactionHandler},
-    testdb::transaction::DBTransactionManager,
 };
 
 /// Handler for executing functions within a transaction
@@ -108,7 +107,7 @@ where
 
     async fn execute(self, _ctx: &mut TestContext<DB>) -> Result<Self::Item, Self::Error> {
         // Create a new context with the database
-        let mut ctx = TestContext::new(self.db);
+        let ctx = TestContext::new(self.db);
 
         // Acquire a connection
         let mut conn = ctx.db.acquire_connection().await?;

@@ -16,37 +16,9 @@ where
     B: TransactionHandler<DB, Error = A::Error> + Send + Sync,
     F: FnOnce(A::Item) -> B + Send + Sync + 'static,
 {
-    first: A,
-    next_fn: F,
-    _phantom: PhantomData<(DB, B)>,
-}
-
-/// Extension trait that adds combinators to transaction handlers
-pub trait TransactionHandlerExt<DB>: TransactionHandler<DB>
-where
-    DB: DatabaseBackend + Send + Sync + Debug + 'static,
-{
-    /// Chain two handlers together, where the second handler may depend on the result of the first
-    fn and_then<F, B>(self, f: F) -> AndThenHandler<DB, Self, B, F>
-    where
-        Self: Sized,
-        B: TransactionHandler<DB, Error = Self::Error> + Send + Sync,
-        F: FnOnce(Self::Item) -> B + Send + Sync + 'static,
-    {
-        AndThenHandler {
-            first: self,
-            next_fn: f,
-            _phantom: PhantomData,
-        }
-    }
-}
-
-// Implement the extension trait for all handlers
-impl<T, DB> TransactionHandlerExt<DB> for T
-where
-    T: TransactionHandler<DB>,
-    DB: DatabaseBackend + Send + Sync + Debug + 'static,
-{
+    pub first: A,
+    pub next_fn: F,
+    pub _phantom: PhantomData<(DB, B)>,
 }
 
 #[async_trait]

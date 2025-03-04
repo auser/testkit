@@ -48,6 +48,8 @@ where
     S: Send + Sync + 'static,
     TFn: Send + Sync + 'static,
 {
+    #[allow(dead_code)]
+    #[inline]
     pub fn new(db: TestDatabaseInstance<DB>, setup_fn: S, transaction_fn: TFn) -> Self {
         Self {
             db,
@@ -76,6 +78,7 @@ where
         >,
 {
     /// Execute the entire operation chain
+    #[allow(dead_code)]
     pub async fn execute(self) -> Result<TestContext<DB>, DB::Error> {
         // Execute the setup function
         self.db.setup(self.setup_fn).await?;
