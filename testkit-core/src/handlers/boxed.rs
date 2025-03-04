@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 use std::future::Future;
-use std::marker::PhantomData;
 use std::pin::Pin;
 
 use crate::DatabasePool;
@@ -8,14 +7,12 @@ use crate::TestContext;
 use crate::handlers::TransactionHandler;
 use crate::testdb::DatabaseBackend;
 use crate::testdb::DatabaseConfig;
-use crate::testdb::DatabaseName;
-use crate::testdb::TestDatabaseConnection;
 use async_trait::async_trait;
 
 /// Entry point for database operations with automatic boxing of closures
 ///
-/// This provides the same functionality as `DatabaseEntryPoint` but automatically
-/// boxes future closures to solve lifetime issues. Use the `boxed_async!` macro
+/// This provides functionality for database operations with automatic boxing
+/// of future closures to solve lifetime issues. Use the `boxed_async!` macro
 /// to easily create boxed async blocks.
 pub struct BoxedDatabaseEntryPoint<DB>
 where
@@ -54,6 +51,22 @@ where
             + Send
             + Sync,
     >,
+    transaction_fn: Box<
+        dyn for<'a> FnOnce(
+                &'a mut <DB as DatabaseBackend>::Connection,
+            )
+                -> Pin<Box<dyn Future<Output = Result<(), DB::Error>> + Send + 'a>>
+            + Send
+            + Sync,
+    >,
+}
+
+/// Handler that stores just a transaction function without setup
+pub struct BoxedTransactionOnlyHandler<DB>
+where
+    DB: DatabaseBackend + Send + Sync + Debug + 'static,
+{
+    backend: DB,
     transaction_fn: Box<
         dyn for<'a> FnOnce(
                 &'a mut <DB as DatabaseBackend>::Connection,
@@ -121,6 +134,41 @@ where
         // Create and return the context
         Ok(crate::TestContext::new(db_instance))
     }
+
+    /// Add an async setup function without requiring boxed_async
+    ///
+    /// This method provides a more ergonomic API without requiring manual boxing
+    pub fn setup_async<F, Fut>(self, setup_fn: F) -> BoxedSetupHandler<DB>
+    where
+        F: FnOnce(&mut <DB::Pool as DatabasePool>::Connection) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), DB::Error>> + Send + 'static,
+    {
+        self.setup(move |conn| {
+            Box::pin(setup_fn(conn))
+                as Pin<Box<dyn Future<Output = Result<(), DB::Error>> + Send + '_>>
+        })
+    }
+
+    /// Add a transaction function without requiring boxed_async
+    ///
+    /// This method provides a more ergonomic API without requiring manual boxing
+    pub fn transaction<F, Fut>(self, transaction_fn: F) -> BoxedTransactionOnlyHandler<DB>
+    where
+        F: FnOnce(&mut <DB as DatabaseBackend>::Connection) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), DB::Error>> + Send + 'static,
+    {
+        self.with_transaction(move |conn| {
+            Box::pin(transaction_fn(conn))
+                as Pin<Box<dyn Future<Output = Result<(), DB::Error>> + Send + '_>>
+        })
+    }
+
+    /// Run the handler
+    ///
+    /// This is an alias for execute() with a more intuitive name
+    pub async fn run(self) -> Result<crate::TestContext<DB>, DB::Error> {
+        self.execute().await
+    }
 }
 
 #[async_trait]
@@ -140,22 +188,6 @@ where
         // Create and return the context
         Ok(crate::TestContext::new(db_instance))
     }
-}
-
-/// Handler that stores just a transaction function without setup
-pub struct BoxedTransactionOnlyHandler<DB>
-where
-    DB: DatabaseBackend + Send + Sync + Debug + 'static,
-{
-    backend: DB,
-    transaction_fn: Box<
-        dyn for<'a> FnOnce(
-                &'a mut <DB as DatabaseBackend>::Connection,
-            )
-                -> Pin<Box<dyn Future<Output = Result<(), DB::Error>> + Send + 'a>>
-            + Send
-            + Sync,
-    >,
 }
 
 impl<DB> BoxedTransactionOnlyHandler<DB>
@@ -183,6 +215,13 @@ where
 
         // Return the context
         Ok(ctx)
+    }
+
+    /// Run the handler
+    ///
+    /// This is an alias for execute() with a more intuitive name
+    pub async fn run(self) -> Result<crate::TestContext<DB>, DB::Error> {
+        self.execute().await
     }
 }
 
@@ -233,7 +272,7 @@ where
                 .await?;
 
         // Create the context
-        let mut ctx = crate::TestContext::new(db_instance);
+        let ctx = crate::TestContext::new(db_instance);
 
         // Get a connection from the pool
         let mut conn = ctx.db.pool.acquire().await?;
@@ -246,6 +285,27 @@ where
 
         // Return the context
         Ok(ctx)
+    }
+
+    /// Add a transaction function without requiring boxed_async
+    ///
+    /// This method provides a more ergonomic API without requiring manual boxing
+    pub fn transaction<F, Fut>(self, transaction_fn: F) -> BoxedTransactionHandler<DB>
+    where
+        F: FnOnce(&mut <DB as DatabaseBackend>::Connection) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), DB::Error>> + Send + 'static,
+    {
+        self.with_transaction(move |conn| {
+            Box::pin(transaction_fn(conn))
+                as Pin<Box<dyn Future<Output = Result<(), DB::Error>> + Send + '_>>
+        })
+    }
+
+    /// Run the handler
+    ///
+    /// This is an alias for execute() with a more intuitive name
+    pub async fn run(self) -> Result<crate::TestContext<DB>, DB::Error> {
+        self.execute().await
     }
 }
 
@@ -274,7 +334,7 @@ where
                 .await?;
 
         // Create the context
-        let mut ctx = crate::TestContext::new(db_instance);
+        let ctx = crate::TestContext::new(db_instance);
 
         // SETUP: Get a connection from the pool
         let mut conn = ctx.db.pool.acquire().await?;
@@ -296,6 +356,13 @@ where
 
         // Return the context
         Ok(ctx)
+    }
+
+    /// Run the handler
+    ///
+    /// This is an alias for execute() with a more intuitive name
+    pub async fn run(self) -> Result<crate::TestContext<DB>, DB::Error> {
+        self.execute().await
     }
 }
 
@@ -340,8 +407,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testdb::TestDatabaseInstance;
-    use async_trait::async_trait;
+    use crate::testdb::{DatabaseName, TestDatabaseConnection};
 
     #[derive(Debug, Clone)]
     struct MockError(String);
@@ -440,14 +506,14 @@ mod tests {
 
         // Example with boxed_async macro
         let ctx = with_boxed_database(backend)
-            .setup(|conn| {
+            .setup(|_conn| {
                 crate::boxed_async!(async move {
                     // This would be a query in real code
                     println!("Setting up database");
                     Ok(())
                 })
             })
-            .with_transaction(|conn| {
+            .with_transaction(|_conn| {
                 crate::boxed_async!(async move {
                     // This would be a transaction in real code
                     println!("Running transaction");

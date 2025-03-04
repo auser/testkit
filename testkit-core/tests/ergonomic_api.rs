@@ -1,10 +1,8 @@
 use std::fmt::Debug;
 
 use async_trait::async_trait;
-use testkit_core::boxed_async;
 use testkit_core::{
     DatabaseBackend, DatabaseConfig, DatabaseName, DatabasePool, TestDatabaseConnection,
-    with_boxed_database,
 };
 
 // Mock database setup for testing
@@ -102,70 +100,83 @@ impl DatabaseBackend for MockBackend {
 }
 
 #[tokio::test]
-async fn test_boxed_api_with_macro() {
+async fn test_direct_api() {
     let backend = MockBackend::new();
 
-    // Table name is a variable we'll capture in closure
-    let table_name = "test_table";
-
-    // Test that we can correctly capture variables with the boxed_async macro
-    let ctx = with_boxed_database(backend)
-        .setup(move |_conn| {
-            boxed_async!(async move {
-                // In real code this would be setting up a database table
-                println!("Creating table: {}", table_name);
-                Ok(())
-            })
+    // Test the direct methods without boxed_async
+    let ctx = testkit_core::with_boxed_database(backend)
+        .setup_async(|_conn| async {
+            println!("Setting up database");
+            Ok(())
         })
-        .with_transaction(move |_conn| {
-            boxed_async!(async move {
-                // In real code this would be a database transaction
-                println!("Inserting into table: {}", table_name);
-                Ok(())
-            })
+        .transaction(|_conn| async {
+            println!("Running transaction");
+            Ok(())
         })
-        .execute()
+        .run()
         .await;
 
-    assert!(
-        ctx.is_ok(),
-        "Failed to execute boxed database: {:?}",
-        ctx.err()
-    );
+    assert!(ctx.is_ok(), "Failed to execute test: {:?}", ctx.err());
 }
 
 #[tokio::test]
-async fn test_capturing_local_variables() {
-    // Test multiple variables and complex types
+async fn test_with_db_test_macro() {
     let backend = MockBackend::new();
-    let table_name = "users";
+    let table_name = "users".to_string();
+
+    // Test the db_test! macro
+    let ctx = testkit_core::db_test!(backend)
+        .setup_async({
+            let table = table_name.clone();
+            move |_conn| async move {
+                println!("Creating table: {}", table);
+                Ok(())
+            }
+        })
+        .transaction({
+            let table = table_name;
+            move |_conn| async move {
+                println!("Inserting into table: {}", table);
+                Ok(())
+            }
+        })
+        .run()
+        .await;
+
+    assert!(ctx.is_ok(), "Failed to execute test: {:?}", ctx.err());
+}
+
+#[tokio::test]
+async fn test_with_capturing_variables() {
+    let backend = MockBackend::new();
+    let table_name = "users".to_string();
     let column_names = vec!["id", "name", "email"];
     let row_count = 10;
 
-    let ctx = with_boxed_database(backend)
-        .setup(move |_conn| {
-            boxed_async!(async move {
-                // In real code this would create a table with the specified columns
-                println!(
-                    "Creating table '{}' with columns: {:?}",
-                    table_name, column_names
-                );
+    // Test that we can correctly capture variables without having to wrap in boxed_async
+    let ctx = testkit_core::with_boxed_database(backend)
+        .setup_async({
+            let table = table_name.clone();
+            let columns = column_names.clone();
+            move |_conn| async move {
+                println!("Creating table '{}' with columns: {:?}", table, columns);
                 Ok(())
-            })
+            }
         })
-        .with_transaction(move |_conn| {
-            boxed_async!(async move {
-                // In real code this would insert rows
-                println!("Inserting {} rows into {}", row_count, table_name);
+        .transaction({
+            let table = table_name;
+            let count = row_count;
+            move |_conn| async move {
+                println!("Inserting {} rows into {}", count, table);
                 Ok(())
-            })
+            }
         })
-        .execute()
+        .run()
         .await;
 
     assert!(
         ctx.is_ok(),
-        "Failed to execute boxed database with captured variables: {:?}",
+        "Failed to execute test with captured variables: {:?}",
         ctx.err()
     );
 }

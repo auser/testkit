@@ -13,7 +13,7 @@ mod with_transaction;
 #[cfg(test)]
 mod tests;
 
-// Re-export all handler components
+// Re-export core components (simplified version)
 pub use and_then::AndThenHandler;
 pub use boxed::{BoxedDatabaseEntryPoint, with_boxed_database, with_boxed_database_config};
 pub use setup::{SetupHandler, setup};
@@ -24,50 +24,31 @@ pub use with_transaction::{
 
 /// Database handlers for the testkit crate
 ///
-/// This module provides handlers for database operations. There are two APIs available:
+/// This module provides handlers for database operations with the boxed API,
+/// which automatically handles boxing of closures to solve lifetime issues when
+/// capturing variables from the environment.
 ///
-/// 1. **Standard API** - The original API that requires manual boxing of closures if you need to
-///    capture variables with complex lifetimes.
-///
-/// 2. **Boxed API** - An enhanced API that automatically boxes closures to avoid lifetime issues
-///    when capturing variables.
-///
-/// # Standard API Example:
-/// ```rust,no_run,ignore
-/// use testkit_core::*;
-///
-/// async fn test() -> Result<(), Box<dyn std::error::Error>> {
-///     let backend = testkit_core::testdb::tests::MockBackend::new();
-///     let ctx = with_database(backend)
-///        .setup(|conn| async { /* setup code */ Ok(()) })
-///        .with_transaction(|tx| async { /* transaction code */ Ok(()) })
-///        .execute()
-///        .await?;
-///     Ok(())
-/// }
-/// ```
-///
-/// # Boxed API Example:
+/// # Example:
 /// ```rust,no_run,ignore
 /// use testkit_core::*;
 ///
 /// async fn test() -> Result<(), Box<dyn std::error::Error>> {
 ///     let backend = testkit_core::testdb::tests::MockBackend::new();
 ///     
-///     // This local variable would cause lifetime issues with the standard API
+///     // This local variable would cause lifetime issues with a non-boxed API
 ///     let table_name = "users".to_string();
 ///     
-///     let ctx = with_boxed_database(backend)
-///        .setup(|conn| async move {
+///     let ctx = with_database(backend)
+///        .setup(|conn| boxed_async!(async move {
 ///            // Can capture local variables without lifetime issues
 ///            let query = format!("CREATE TABLE {}", table_name);
 ///            // setup code
 ///            Ok(())
-///        })
-///        .with_transaction(|tx| async move {
-///            // Transaction code
+///        }))
+///        .with_transaction(|tx| boxed_async!(async move {
+///            // Transaction code with local variables
 ///            Ok(())
-///        })
+///        }))
 ///        .execute()
 ///        .await?;
 ///     Ok(())
@@ -221,6 +202,7 @@ where
     handler.run_with_database(backend).await
 }
 
+// These wrapper types are needed for type compatibility in the and_then chains
 /// Helper wrapper for SetupHandler
 pub struct SetupHandlerWrapper<DB, S, E>
 where

@@ -1,7 +1,5 @@
 use std::future::Future;
-use std::marker::PhantomData;
 use std::pin::Pin;
-use std::task::{Context, Poll};
 
 /// Macro to automatically box an async block for use with the boxed database API
 ///
@@ -9,31 +7,32 @@ use std::task::{Context, Poll};
 /// manually use Box::pin() around async blocks.
 #[macro_export]
 macro_rules! boxed_async {
-    // Match an async block with move
-    (async move $block:block) => {
-        Box::pin(async move $block)
-    };
-    // Match a regular async block
     (async $block:block) => {
-        Box::pin(async $block)
+        Box::pin(async $block) as std::pin::Pin<Box<dyn std::future::Future<Output = _> + Send + '_>>
+    };
+    (async move $block:block) => {
+        Box::pin(async move $block) as std::pin::Pin<Box<dyn std::future::Future<Output = _> + Send + '_>>
     };
 }
 
-/// Macro to implement TransactionHandler for a type
+/// Macro to implement the TransactionHandler trait for a type
 ///
 /// This macro makes it easier to implement the TransactionHandler trait for types
 /// that work with databases. It automatically handles the Box::pin wrapping for async functions.
 #[macro_export]
 macro_rules! impl_transaction_handler {
-    (
-        $type:ty, $db:ty, $item:ty, $error:ty,
-        async fn execute($self:ident, $ctx:ident: &mut TestContext<$db_type:ty>) -> Result<$result:ty, $err:ty> $body:block
-    ) => {
-        impl crate::handlers::TransactionHandler<$db> for $type {
+    ($type:ty, $db:ty, $item:ty, $error:ty) => {
+        #[async_trait::async_trait]
+        impl $crate::handlers::TransactionHandler<$db> for $type {
             type Item = $item;
             type Error = $error;
 
-            async fn execute($self, $ctx: &mut crate::TestContext<$db_type>) -> Result<$result, $err> $body
+            async fn execute(
+                self,
+                ctx: &mut $crate::TestContext<$db>,
+            ) -> Result<Self::Item, Self::Error> {
+                self.execute_impl(ctx).await
+            }
         }
     };
 }
@@ -58,87 +57,80 @@ where
     }
 }
 
-/// Boxes an async closure that returns a Result type
+/// A more ergonomic macro for database operations that hides all the boxing complexity
 ///
-/// This function takes a closure that returns a Future with a Result and wraps it in a
-/// Pin<Box<dyn Future>> to solve lifetime problems. This is particularly useful
-/// for async closures that capture variables from their environment.
-pub fn boxed_future_with_result<T, F, Fut, R, E>(
-    f: F,
-) -> impl FnOnce(T) -> Pin<Box<dyn Future<Output = Result<R, E>> + Send>>
-where
-    F: FnOnce(T) -> Fut + Send + 'static,
-    Fut: Future<Output = Result<R, E>> + Send + 'static,
-    T: Send + 'static,
-    R: Send + 'static,
-    E: Send + 'static,
-{
-    move |t| {
-        let future = f(t);
-        Box::pin(future) as Pin<Box<dyn Future<Output = Result<R, E>> + Send>>
-    }
+/// This macro provides a clean syntax for database operations without requiring
+/// the user to manually use Box::new(), Box::pin(), or boxed_async!
+///
+/// # Example:
+///
+/// ```rust,no_run,ignore
+/// use testkit_core::db_test;
+///
+/// #[tokio::test]
+/// async fn test_database() {
+///     let backend = MockBackend::new();
+///     
+///     // Using the macro for a clean API
+///     let ctx = db_test!(backend)
+///         .setup_async(|conn| async {
+///             // Setup operations...
+///             Ok(())
+///         })
+///         .transaction(|conn| async {
+///             // Transaction operations...
+///             Ok(())
+///         })
+///         .run()
+///         .await
+///         .expect("Test failed");
+/// }
+/// ```
+#[macro_export]
+macro_rules! db_test {
+    ($backend:expr) => {
+        $crate::with_boxed_database($backend)
+    };
+    ($backend:expr, $config:expr) => {
+        $crate::with_boxed_database_config($backend, $config)
+    };
 }
 
-/// A utility struct to enable auto-boxing of futures with different lifetimes
-pub struct AutoBoxFuture<'a, F, Fut, T, R>
-where
-    F: FnOnce(&'a mut T) -> Fut + 'static,
-    Fut: Future<Output = R> + 'static,
-    T: 'a,
-    R: 'static,
-{
-    #[allow(dead_code)]
-    f: Option<F>,
-    arg: PhantomData<&'a mut T>,
-    #[allow(dead_code)]
-    fut: Option<Fut>,
-    _phantom: PhantomData<R>,
+/// A macro to simplify setting up a database
+///
+/// This macro provides a cleaner API for the setup phase without requiring
+/// manual boxing.
+#[macro_export]
+macro_rules! setup {
+    ($backend:expr, |$conn:ident| $body:expr) => {
+        $crate::with_boxed_database($backend)
+            .setup(|$conn| $crate::boxed_async!($body))
+    };
 }
 
-impl<'a, F, Fut, T, R> AutoBoxFuture<'a, F, Fut, T, R>
-where
-    F: FnOnce(&'a mut T) -> Fut + 'static,
-    Fut: Future<Output = R> + 'static,
-    T: 'a,
-    R: 'static,
-{
-    /// Create a new auto-boxing future
-    pub fn new(f: F) -> Self {
-        AutoBoxFuture {
-            f: Some(f),
-            arg: PhantomData,
-            fut: None,
-            _phantom: PhantomData,
-        }
-    }
+/// A macro to simplify running a transaction
+///
+/// This macro provides a cleaner API for the transaction phase without requiring
+/// manual boxing.
+#[macro_export]
+macro_rules! transaction {
+    ($backend:expr, |$conn:ident| $body:expr) => {
+        $crate::with_boxed_database($backend)
+            .with_transaction(|$conn| $crate::boxed_async!($body))
+    };
 }
 
-impl<'a, F, Fut, T, R> Future for AutoBoxFuture<'a, F, Fut, T, R>
-where
-    F: FnOnce(&'a mut T) -> Fut + 'static,
-    Fut: Future<Output = R> + 'static,
-    T: 'a,
-    R: 'static,
-{
-    type Output = R;
-
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // Since T is bound by 'a, we can't actually call F here without having a &'a mut T
-        // This AutoBoxFuture is just a placeholder for the compiler - the real implementation
-        // will use a different approach.
-        panic!("AutoBoxFuture should never be polled directly");
-    }
-}
-
-/// Helper function to auto-box a future closure that captures variables
-/// and convert it to a Pin<Box<dyn Future>> with the correct lifetime
-pub fn auto_box_future<T, F, Fut, R>(
-    f: F,
-) -> impl for<'a> FnOnce(&'a mut T) -> Pin<Box<dyn Future<Output = R> + Send + 'a>>
-where
-    for<'a> F: FnOnce(&'a mut T) -> Fut + Send + Sync + 'static,
-    for<'a> Fut: Future<Output = R> + Send + 'a,
-    R: Send + 'static,
-{
-    move |arg| Box::pin(f(arg))
+/// A macro to simplify both setup and transaction phases
+///
+/// This macro provides a cleaner API for both setup and transaction phases without
+/// requiring manual boxing.
+#[macro_export]
+macro_rules! setup_and_transaction {
+    ($backend:expr, 
+     setup: |$setup_conn:ident| $setup_body:expr,
+     transaction: |$tx_conn:ident| $tx_body:expr) => {
+        $crate::with_boxed_database($backend)
+            .setup(|$setup_conn| $crate::boxed_async!($setup_body))
+            .with_transaction(|$tx_conn| $crate::boxed_async!($tx_body))
+    };
 }

@@ -2,11 +2,13 @@ use crate::{PostgresError, tokio_postgres::TransactionManager, tokio_postgres::T
 use async_trait::async_trait;
 use sqlx::postgres::{PgConnection, PgPool, PgPoolOptions};
 use std::fmt::{Debug, Display};
+use std::process::Command;
 use std::sync::Arc;
 use testkit_core::{
     DatabaseBackend, DatabaseConfig, DatabaseName, DatabasePool, TestDatabaseConnection,
     TestDatabaseInstance,
 };
+use url::Url;
 
 /// A connection to a PostgreSQL database using sqlx
 #[derive(Clone)]
@@ -84,8 +86,67 @@ impl DatabaseBackend for SqlxPostgresBackend {
     }
 
     fn drop_database(&self, name: &DatabaseName) -> Result<(), Self::Error> {
-        // Implementation will go here
-        unimplemented!()
+        // Parse the admin URL to extract connection parameters
+        let url = match Url::parse(&self.config.admin_url) {
+            Ok(url) => url,
+            Err(e) => {
+                tracing::error!("Failed to parse admin URL: {}", e);
+                return Err(PostgresError::ConfigError(e.to_string()));
+            }
+        };
+
+        let database_name = name.as_str();
+        let test_user = url.username();
+
+        // Format the connection string for the admin database
+        let database_host = format!(
+            "{}://{}:{}@{}:{}",
+            url.scheme(),
+            test_user,
+            url.password().unwrap_or(""),
+            url.host_str().unwrap_or("localhost"),
+            url.port().unwrap_or(5432)
+        );
+
+        // First, terminate all connections to the database
+        let output = std::process::Command::new("psql")
+            .arg(&database_host)
+            .arg("-c")
+            .arg(format!("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{}' AND pid <> pg_backend_pid();", database_name))
+            .output();
+
+        if let Err(e) = output {
+            tracing::warn!(
+                "Failed to terminate connections to database {}: {}",
+                database_name,
+                e
+            );
+            // Continue with drop attempt even if termination fails
+        }
+
+        // Now drop the database
+        let output = std::process::Command::new("psql")
+            .arg(&database_host)
+            .arg("-c")
+            .arg(format!("DROP DATABASE IF EXISTS \"{}\";", database_name))
+            .output();
+
+        match output {
+            Ok(output) => {
+                if output.status.success() {
+                    tracing::info!("Successfully dropped database {}", name);
+                    Ok(())
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    tracing::error!("Failed to drop database {}: {}", name, stderr);
+                    Err(PostgresError::DatabaseDropError(stderr.to_string()))
+                }
+            }
+            Err(e) => {
+                tracing::error!("Failed to execute psql command to drop {}: {}", name, e);
+                Err(PostgresError::DatabaseDropError(e.to_string()))
+            }
+        }
     }
 
     fn connection_string(&self, name: &DatabaseName) -> String {

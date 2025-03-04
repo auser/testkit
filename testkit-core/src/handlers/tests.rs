@@ -4,12 +4,9 @@ use std::sync::{Mutex, OnceLock};
 use async_trait::async_trait;
 
 use crate::{
-    TestContext, boxed_async,
-    handlers::with_database,
-    testdb::{
-        DatabaseBackend, DatabaseConfig, DatabaseName, DatabasePool, TestDatabaseConnection,
-        TestDatabaseInstance,
-    },
+    boxed_async,
+    handlers::with_boxed_database,
+    testdb::{DatabaseBackend, DatabaseConfig, DatabaseName, DatabasePool, TestDatabaseConnection},
 };
 
 /// A mock connection for testing
@@ -183,7 +180,7 @@ async fn test_with_database_only() {
     with_test_fixture("test_with_database_only", || async {
         let backend = MockBackend::new();
 
-        let ctx = with_database(backend)
+        let ctx = with_boxed_database(backend)
             .execute()
             .await
             .expect("Failed to execute database handler");
@@ -209,7 +206,7 @@ async fn test_with_database_and_setup() {
     with_test_fixture("test_with_database_and_setup", || async {
         let backend = MockBackend::new();
 
-        let ctx = with_database(backend)
+        let ctx = with_boxed_database(backend)
             .setup(|_conn| {
                 boxed_async!(async {
                     mark_setup_called();
@@ -234,7 +231,7 @@ async fn test_with_database_and_transaction() {
     with_test_fixture("test_with_database_and_transaction", || async {
         let backend = MockBackend::new();
 
-        let ctx = with_database(backend)
+        let ctx = with_boxed_database(backend)
             .with_transaction(|_conn| {
                 boxed_async!(async {
                     mark_transaction_called();
@@ -262,7 +259,7 @@ async fn test_with_database_setup_and_transaction() {
     with_test_fixture("test_with_database_setup_and_transaction", || async {
         let backend = MockBackend::new();
 
-        let ctx = with_database(backend)
+        let ctx = with_boxed_database(backend)
             .setup(|_conn| {
                 boxed_async!(async {
                     mark_setup_called();
@@ -296,7 +293,7 @@ async fn test_error_in_setup() {
     with_test_fixture("test_error_in_setup", || async {
         let backend = MockBackend::new();
 
-        let result = with_database(backend)
+        let result = with_boxed_database(backend)
             .setup(|_conn| boxed_async!(async { Err(MockError("Setup error".to_string())) }))
             .execute()
             .await;
@@ -311,7 +308,7 @@ async fn test_error_in_transaction() {
     with_test_fixture("test_error_in_transaction", || async {
         let backend = MockBackend::new();
 
-        let result = with_database(backend)
+        let result = with_boxed_database(backend)
             .with_transaction(|_conn| {
                 boxed_async!(async { Err(MockError("Transaction error".to_string())) })
             })
@@ -328,7 +325,7 @@ async fn test_error_in_setup_with_transaction() {
     with_test_fixture("test_error_in_setup_with_transaction", || async {
         let backend = MockBackend::new();
 
-        let result = with_database(backend)
+        let result = with_boxed_database(backend)
             .setup(|_conn| boxed_async!(async { Err(MockError("Setup error".to_string())) }))
             .with_transaction(|_conn| {
                 boxed_async!(async {
@@ -354,7 +351,7 @@ async fn test_database_entry_point_directly() {
         println!("Executing entry point directly");
 
         let backend = MockBackend::new();
-        let ctx = with_database(backend)
+        let ctx = with_boxed_database(backend)
             .execute()
             .await
             .expect("Failed to execute database entry point directly");

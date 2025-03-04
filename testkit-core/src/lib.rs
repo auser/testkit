@@ -9,8 +9,7 @@ pub use handlers::*;
 pub use testdb::*;
 pub use utils::*;
 
-// Include the boxed_async macro
-// The macro is already exported with #[macro_export]
+// The boxed_async macro is already exported with #[macro_export]
 
 use std::fmt::Debug;
 
@@ -41,175 +40,67 @@ where
     }
 }
 
-// /// A struct representing the with_database operation
-// #[derive(Debug)]
-// #[must_use]
-// pub struct WithDatabase<DB>
-// where
-//     DB: DatabaseBackend + Send + Sync + Debug + 'static,
-// {
-//     db: TestDatabaseInstance<DB>,
-// }
-
-// /// Create a new test context with a database
-// pub async fn with_database<DB>(backend: DB) -> WithDatabase<DB>
-// where
-//     DB: DatabaseBackend + Send + Sync + Debug + 'static,
-// {
-//     let db = TestDatabaseInstance::new(backend, DatabaseConfig::default())
-//         .await
-//         .expect("Failed to create test database instance");
-
-//     WithDatabase { db }
-// }
-
-// impl<DB> WithDatabase<DB>
-// where
-//     DB: DatabaseBackend + Send + Sync + Debug + 'static,
-// {
-//     /// Setup the database with a function
-//     pub fn setup<S, Fut>(self, setup_fn: S) -> SetupHandler<DB, S>
-//     where
-//         S: FnOnce(&mut <DB::Pool as DatabasePool>::Connection) -> Fut + Send + Sync + 'static,
-//         Fut: std::future::Future<Output = Result<(), DB::Error>> + Send + 'static,
-//     {
-//         SetupHandler {
-//             db: self.db,
-//             setup_fn,
-//         }
-//     }
-// }
-
-// /// A struct for handling database setup
-// #[derive(Debug)]
-// #[must_use]
-// pub struct SetupHandler<DB, S>
-// where
-//     DB: DatabaseBackend + Send + Sync + Debug + 'static,
-//     S: Send + Sync + 'static,
-// {
-//     db: TestDatabaseInstance<DB>,
-//     setup_fn: S,
-// }
-
-// impl<DB, S, Fut> SetupHandler<DB, S>
-// where
-//     DB: DatabaseBackend + Send + Sync + Debug + 'static,
-//     S: FnOnce(&mut <DB::Pool as DatabasePool>::Connection) -> Fut + Send + Sync + 'static,
-//     Fut: std::future::Future<Output = Result<(), DB::Error>> + Send + 'static,
-// {
-//     /// Execute an operation with a transaction
-//     pub fn with_transaction<TFn, TxFut>(self, transaction_fn: TFn) -> TransactionHandler<DB, S, TFn>
-//     where
-//         TxFut: std::future::Future<Output = Result<(), DB::Error>> + Send + 'static,
-//         for<'tx> TFn: FnOnce(&'tx mut <TestContext<DB> as TransactionStarter<DB>>::Transaction) -> TxFut
-//             + Send
-//             + Sync
-//             + 'static,
-//         TestContext<DB>: TransactionStarter<DB>,
-//     {
-//         TransactionHandler {
-//             db: self.db,
-//             setup_fn: self.setup_fn,
-//             transaction_fn,
-//         }
-//     }
-
-//     /// Execute the setup operation only
-//     pub async fn execute(
-//         self,
-//     ) -> Result<(TestContext<DB>, <DB::Pool as DatabasePool>::Connection), DB::Error> {
-//         // Get a connection from the pool
-//         let mut conn = self.db.acquire_connection().await?;
-
-//         // Execute the setup function directly (not through db.setup)
-//         (self.setup_fn)(&mut conn).await?;
-
-//         // Create the context
-//         let ctx = TestContext::new(self.db);
-
-//         // Return both the context and the connection
-//         Ok((ctx, conn))
-//     }
-// }
-
-// /// A struct for handling database transactions
-// #[derive(Debug)]
-// #[must_use]
-// pub struct TransactionHandler<DB, S, TFn>
-// where
-//     DB: DatabaseBackend + Send + Sync + Debug + 'static,
-//     S: Send + Sync + 'static,
-//     TFn: Send + Sync + 'static,
-// {
-//     db: TestDatabaseInstance<DB>,
-//     setup_fn: S,
-//     transaction_fn: TFn,
-// }
-
-// impl<DB, S, Fut, TFn, TxFut> TransactionHandler<DB, S, TFn>
-// where
-//     DB: DatabaseBackend + Send + Sync + Debug + 'static,
-//     S: FnOnce(&mut <DB::Pool as DatabasePool>::Connection) -> Fut + Send + Sync + 'static,
-//     Fut: std::future::Future<Output = Result<(), DB::Error>> + Send + 'static,
-//     TxFut: std::future::Future<Output = Result<(), DB::Error>> + Send + 'static,
-//     for<'tx> TFn: FnOnce(&'tx mut <TestContext<DB> as TransactionStarter<DB>>::Transaction) -> TxFut
-//         + Send
-//         + Sync
-//         + 'static,
-//     TestContext<DB>: TransactionStarter<DB>
-//         + DBTransactionManager<
-//             <TestContext<DB> as TransactionStarter<DB>>::Transaction,
-//             <TestContext<DB> as TransactionStarter<DB>>::Connection,
-//             Error = DB::Error,
-//             Tx = <TestContext<DB> as TransactionStarter<DB>>::Transaction,
-//         >,
-// {
-//     /// Execute the entire operation chain
-//     pub async fn execute(self) -> Result<TestContext<DB>, DB::Error> {
-//         // Execute the setup function
-//         self.db.setup(self.setup_fn).await?;
-
-//         // Create the context
-//         let mut ctx = TestContext::new(self.db);
-
-//         // Begin the transaction using explicit types
-//         let mut tx = <TestContext<DB> as DBTransactionManager<
-//             <TestContext<DB> as TransactionStarter<DB>>::Transaction,
-//             <TestContext<DB> as TransactionStarter<DB>>::Connection,
-//         >>::begin_transaction(&mut ctx)
-//         .await?;
-
-//         // Execute the transaction function
-//         match (self.transaction_fn)(&mut tx).await {
-//             Ok(_) => {
-//                 // Commit the transaction
-//                 <TestContext<DB> as DBTransactionManager<
-//                     <TestContext<DB> as TransactionStarter<DB>>::Transaction,
-//                     <TestContext<DB> as TransactionStarter<DB>>::Connection,
-//                 >>::commit_transaction(&mut tx)
-//                 .await?;
-//             }
-//             Err(e) => {
-//                 // Rollback the transaction on error
-//                 let _ = <TestContext<DB> as DBTransactionManager<
-//                     <TestContext<DB> as TransactionStarter<DB>>::Transaction,
-//                     <TestContext<DB> as TransactionStarter<DB>>::Connection,
-//                 >>::rollback_transaction(&mut tx)
-//                 .await;
-//                 return Err(e);
-//             }
-//         }
-
-//         Ok(ctx)
-//     }
-// }
-
-// Re-export key components from handlers module
-pub use handlers::with_database;
-
-// Re-export testing types for mocks
-#[cfg(test)]
+/// Testing utilities for working with database handlers in a mock environment
+///
+/// This module provides ergonomic APIs for working with database tests, allowing
+/// you to create seamless test interactions with databases.
+///
+/// # Examples
+///
+/// Using the direct API with `setup_async` and `transaction` methods:
+///
+/// ```rust,no_run
+/// use testkit_core::*;
+///
+/// #[tokio::test]
+/// async fn test_database() {
+///     let backend = MockBackend::new();
+///    
+///     // Direct API with setup_async and transaction methods (no boxed_async needed)
+///     let ctx = with_boxed_database(backend)
+///         .setup_async(|conn| async {
+///             println!("Setting up database");
+///             Ok(())
+///         })
+///         .transaction(|conn| async {
+///             println!("Running transaction");
+///             Ok(())
+///         })
+///         .run()
+///         .await
+///         .expect("Test failed");
+/// }
+/// ```
+///
+/// Using the `db_test!` macro for a clean entry point:
+///
+/// ```rust,no_run
+/// use testkit_core::*;
+///
+/// #[tokio::test]
+/// async fn test_with_macro() {
+///     let backend = MockBackend::new();
+///     
+///     // Variable capture works seamlessly
+///     let table_name = "users".to_string();
+///    
+///     // Using db_test! macro as a more readable entry point
+///     let ctx = db_test!(backend)
+///         .setup_async(|conn| async move {
+///             println!("Creating table: {}", table_name);
+///             Ok(())
+///         })
+///         .transaction(|conn| async {
+///             println!("Running transaction");
+///             Ok(())
+///         })
+///         .run()
+///         .await
+///         .expect("Test failed");
+/// }
+/// ```
+///
+/// For more examples, check the `tests/ergonomic_api.rs` file.
 pub mod tests {
     pub mod mock {
         // A minimal mock backend for testing
@@ -248,13 +139,21 @@ pub mod tests {
             }
 
             fn connection_string(&self) -> String {
-                "mock://pool".to_string()
+                "mock://test".to_string()
             }
         }
 
-        // Define a mock error type
+        // Define a simple error type
         #[derive(Debug, Clone)]
         pub struct MockError(pub String);
+
+        impl std::fmt::Display for MockError {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "MockError: {}", self.0)
+            }
+        }
+
+        impl std::error::Error for MockError {}
 
         impl From<String> for MockError {
             fn from(s: String) -> Self {
@@ -262,21 +161,13 @@ pub mod tests {
             }
         }
 
-        impl std::fmt::Display for MockError {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "Mock Error: {}", self.0)
-            }
-        }
-
-        impl std::error::Error for MockError {}
-
-        // Define a mock database backend
+        // Define a mock backend
         #[derive(Debug, Clone)]
         pub struct MockBackend;
 
         impl MockBackend {
             pub fn new() -> Self {
-                MockBackend
+                Self
             }
         }
 
@@ -287,7 +178,7 @@ pub mod tests {
             type Error = MockError;
 
             async fn new(_config: DatabaseConfig) -> Result<Self, Self::Error> {
-                Ok(MockBackend)
+                Ok(Self)
             }
 
             async fn create_pool(
@@ -306,7 +197,9 @@ pub mod tests {
                 Ok(())
             }
 
-            fn drop_database(&self, _name: &DatabaseName) -> Result<(), Self::Error> {
+            fn drop_database(&self, name: &DatabaseName) -> Result<(), Self::Error> {
+                // In a mock implementation, log that we would drop the database
+                tracing::info!("Mock dropping database: {}", name);
                 Ok(())
             }
 
