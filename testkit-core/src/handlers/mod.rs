@@ -5,13 +5,15 @@ use std::marker::PhantomData;
 use crate::testdb::{DatabaseBackend, DatabaseConfig};
 
 mod and_then;
-mod boxed;
+pub mod boxed;
 mod setup;
 mod with_database;
 mod with_transaction;
 
 #[cfg(test)]
 mod tests;
+
+pub mod db;
 
 // Re-export all handler components
 pub use and_then::AndThenHandler;

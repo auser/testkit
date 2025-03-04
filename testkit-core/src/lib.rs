@@ -3,10 +3,14 @@ mod handlers;
 mod testdb;
 mod utils;
 
+// Re-exported types and traits
 pub use context::*;
 pub use handlers::*;
 pub use testdb::*;
 pub use utils::*;
+
+// Include the boxed_async macro
+// The macro is already exported with #[macro_export]
 
 use std::fmt::Debug;
 

@@ -1,0 +1,33 @@
+[package]
+name = "testkit-postgres"
+version = "0.1.0"
+edition = "2024"
+description = "PostgreSQL support for the testkit database testing library"
+license = "MIT"
+
+[dependencies]
+testkit-core = { path = "../testkit-core" }
+async-trait = "0.1"
+thiserror = "1.0"
+tracing = "0.1"
+futures = "0.3"
+uuid = { version = "1.6", features = ["v4"] }
+tokio = { version = "1", features = ["rt", "macros", "time"] }
+
+# Feature-specific dependencies
+tokio-postgres = { version = "0.7", optional = true }
+deadpool-postgres = { version = "0.10", optional = true }
+postgres-types = { version = "0.2", optional = true }
+
+sqlx = { version = "0.7", features = [
+  "postgres",
+  "runtime-tokio",
+], optional = true }
+
+[features]
+default = ["postgres"]
+postgres = ["tokio-postgres", "deadpool-postgres", "postgres-types"]
+sqlx = ["dep:sqlx"]
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util", "macros"] }
