@@ -39,7 +39,8 @@ pub use testkit_core::boxed_async;
 /// capture local variables. Use the `boxed_async!` macro to avoid manually boxing the async blocks.
 ///
 /// ```no_run
-/// use testkit_postgres::{postgres_backend, with_boxed_database, boxed_async};
+/// use testkit_core::{with_boxed_database, boxed_async};
+/// use testkit_postgres::{sqlx_postgres_backend as postgres_backend};
 ///
 /// async fn example() -> Result<(), Box<dyn std::error::Error>> {
 ///     // Create a backend

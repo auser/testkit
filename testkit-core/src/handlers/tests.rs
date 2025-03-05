@@ -107,7 +107,7 @@ fn reset_counters() {
 }
 
 /// Run a test with proper isolation and state cleanup
-async fn with_test_fixture<F, Fut>(test_name: &str, test_fn: F)
+async fn with_test_fixture<F, Fut>(_test_name: &str, test_fn: F)
 where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = ()>,
