@@ -1,8 +1,12 @@
+// Common traits used across feature implementations
+mod common_traits;
+pub use common_traits::*;
+
 #[cfg(feature = "postgres")]
-mod tokio_postgres;
+pub mod tokio_postgres;
 
 #[cfg(feature = "sqlx")]
-mod sqlx_postgres;
+pub mod sqlx_postgres;
 
 // Error types for the library
 mod error;

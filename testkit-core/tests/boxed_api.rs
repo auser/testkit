@@ -106,21 +106,19 @@ async fn test_boxed_api_with_macro() {
     let backend = MockBackend::new();
 
     // Table name is a variable we'll capture in closure
-    let table_name = "test_table";
+    let _table_name = "test_table";
 
     // Test that we can correctly capture variables with the boxed_async macro
     let ctx = with_boxed_database(backend)
         .setup(move |_conn| {
             boxed_async!(async move {
-                // In real code this would be setting up a database table
-                println!("Creating table: {}", table_name);
+                // Use the connection to set up the database
                 Ok(())
             })
         })
         .with_transaction(move |_conn| {
             boxed_async!(async move {
-                // In real code this would be a database transaction
-                println!("Inserting into table: {}", table_name);
+                // Use the connection to run a transaction
                 Ok(())
             })
         })

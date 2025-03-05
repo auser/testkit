@@ -18,12 +18,12 @@ url = "2.4"
 
 # Feature-specific dependencies
 tokio-postgres = { version = "0.7", optional = true }
-deadpool-postgres = { version = "0.10", optional = true }
+deadpool-postgres = { version = "0.14", optional = true }
 postgres-types = { version = "0.2", optional = true }
 
-sqlx = { version = "0.7", features = [
-  "postgres",
+sqlx = { version = "0.8", features = [
   "runtime-tokio",
+  "postgres",
 ], optional = true }
 
 [features]

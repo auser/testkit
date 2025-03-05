@@ -162,14 +162,8 @@ pub mod tests {
         }
 
         // Define a mock backend
-        #[derive(Debug, Clone)]
+        #[derive(Debug, Clone, Default)]
         pub struct MockBackend;
-
-        impl MockBackend {
-            pub fn new() -> Self {
-                Self
-            }
-        }
 
         #[async_trait]
         impl DatabaseBackend for MockBackend {

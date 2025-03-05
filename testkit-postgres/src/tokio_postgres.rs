@@ -1,4 +1,5 @@
 use crate::PostgresError;
+use crate::{TransactionManager, TransactionTrait};
 use async_trait::async_trait;
 use std::fmt::Debug;
 use std::str::FromStr;
@@ -133,11 +134,7 @@ impl DatabaseBackend for PostgresBackend {
                 .map_err(|e| PostgresError::ConnectionError(e.to_string()))?;
 
         // Spawn the connection handler
-        tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                eprintln!("Connection error: {}", e);
-            }
-        });
+        tokio::spawn(async move { if let Err(_e) = connection.await {} });
 
         // Create the database
         let db_name = name.as_str();
@@ -170,7 +167,7 @@ impl DatabaseBackend for PostgresBackend {
             url.scheme(),
             test_user,
             url.password().unwrap_or(""),
-            url.host_str().unwrap_or("localhost"),
+            url.host_str().unwrap_or("postgres"),
             url.port().unwrap_or(5432)
         );
 
@@ -226,7 +223,7 @@ impl DatabaseBackend for PostgresBackend {
         }
 
         // Fallback
-        format!("postgres://localhost/{}", name.as_str())
+        format!("postgres://postgres/{}", name.as_str())
     }
 }
 
@@ -289,25 +286,6 @@ impl TransactionManager for TestDatabaseInstance<PostgresBackend> {
     }
 }
 
-// Define the transaction traits locally to avoid private module issues
-#[async_trait]
-pub trait TransactionTrait: Send + Sync {
-    type Error: Send + Sync;
-    async fn commit(&mut self) -> Result<(), Self::Error>;
-    async fn rollback(&mut self) -> Result<(), Self::Error>;
-}
-
-#[async_trait]
-pub trait TransactionManager: Send + Sync {
-    type Error: Send + Sync;
-    type Tx: TransactionTrait<Error = Self::Error> + Send + Sync;
-    type Connection: Send + Sync;
-
-    async fn begin_transaction(&mut self) -> Result<Self::Tx, Self::Error>;
-    async fn commit_transaction(tx: &mut Self::Tx) -> Result<(), Self::Error>;
-    async fn rollback_transaction(tx: &mut Self::Tx) -> Result<(), Self::Error>;
-}
-
 /// Create a new PostgreSQL backend from environment variables
 ///
 /// This function can be used to create a backend that can be passed into `with_database()`
@@ -340,7 +318,7 @@ pub async fn postgres_backend() -> Result<PostgresBackend, PostgresError> {
 /// use testkit_core::with_database;
 ///
 /// async fn test() {
-///     let config = DatabaseConfig::new("postgres://admin@localhost/postgres", "postgres://user@localhost/postgres");
+///     let config = DatabaseConfig::new("postgres://admin@postgres/postgres", "postgres://user@postgres/postgres");
 ///     let backend = postgres_backend_with_config(config).await.unwrap();
 ///     let context = with_database(backend)
 ///         .execute()

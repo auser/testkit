@@ -9,6 +9,27 @@ use crate::testdb::DatabaseBackend;
 use crate::testdb::DatabaseConfig;
 use async_trait::async_trait;
 
+// Type aliases to simplify complex types
+/// Type for a boxed setup function that can be executed on a database pool connection
+pub type BoxedSetupFn<DB> = Box<
+    dyn for<'a> FnOnce(
+            &'a mut <<DB as DatabaseBackend>::Pool as crate::DatabasePool>::Connection,
+        ) -> Pin<
+            Box<dyn Future<Output = Result<(), <DB as DatabaseBackend>::Error>> + Send + 'a>,
+        > + Send
+        + Sync,
+>;
+
+/// Type for a boxed transaction function that can be executed on a database connection
+pub type BoxedTransactionFn<DB> = Box<
+    dyn for<'a> FnOnce(
+            &'a mut <DB as DatabaseBackend>::Connection,
+        ) -> Pin<
+            Box<dyn Future<Output = Result<(), <DB as DatabaseBackend>::Error>> + Send + 'a>,
+        > + Send
+        + Sync,
+>;
+
 /// Entry point for database operations with automatic boxing of closures
 ///
 /// This provides functionality for database operations with automatic boxing
@@ -27,14 +48,7 @@ where
     DB: DatabaseBackend + Send + Sync + Debug + 'static,
 {
     backend: DB,
-    setup_fn: Box<
-        dyn for<'a> FnOnce(
-                &'a mut <DB::Pool as crate::DatabasePool>::Connection,
-            )
-                -> Pin<Box<dyn Future<Output = Result<(), DB::Error>> + Send + 'a>>
-            + Send
-            + Sync,
-    >,
+    setup_fn: BoxedSetupFn<DB>,
 }
 
 /// Handler that stores both setup and transaction functions
@@ -43,22 +57,8 @@ where
     DB: DatabaseBackend + Send + Sync + Debug + 'static,
 {
     backend: DB,
-    setup_fn: Box<
-        dyn for<'a> FnOnce(
-                &'a mut <DB::Pool as crate::DatabasePool>::Connection,
-            )
-                -> Pin<Box<dyn Future<Output = Result<(), DB::Error>> + Send + 'a>>
-            + Send
-            + Sync,
-    >,
-    transaction_fn: Box<
-        dyn for<'a> FnOnce(
-                &'a mut <DB as DatabaseBackend>::Connection,
-            )
-                -> Pin<Box<dyn Future<Output = Result<(), DB::Error>> + Send + 'a>>
-            + Send
-            + Sync,
-    >,
+    setup_fn: BoxedSetupFn<DB>,
+    transaction_fn: BoxedTransactionFn<DB>,
 }
 
 /// Handler that stores just a transaction function without setup
@@ -67,14 +67,7 @@ where
     DB: DatabaseBackend + Send + Sync + Debug + 'static,
 {
     backend: DB,
-    transaction_fn: Box<
-        dyn for<'a> FnOnce(
-                &'a mut <DB as DatabaseBackend>::Connection,
-            )
-                -> Pin<Box<dyn Future<Output = Result<(), DB::Error>> + Send + 'a>>
-            + Send
-            + Sync,
-    >,
+    transaction_fn: BoxedTransactionFn<DB>,
 }
 
 impl<DB> BoxedDatabaseEntryPoint<DB>
@@ -508,15 +501,13 @@ mod tests {
         let ctx = with_boxed_database(backend)
             .setup(|_conn| {
                 crate::boxed_async!(async move {
-                    // This would be a query in real code
-                    println!("Setting up database");
+                    // Use the connection to set up the database
                     Ok(())
                 })
             })
             .with_transaction(|_conn| {
                 crate::boxed_async!(async move {
-                    // This would be a transaction in real code
-                    println!("Running transaction");
+                    // Use the connection to run a transaction
                     Ok(())
                 })
             })

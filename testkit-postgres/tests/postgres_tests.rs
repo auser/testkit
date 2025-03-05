@@ -1,17 +1,27 @@
 #![allow(clippy::all, unused_must_use, unused_lifetimes)]
+#![cfg(feature = "postgres")] // This file is specific to tokio-postgres backend
 
 use std::future::Future;
 use std::pin::Pin;
-use testkit_core::{DatabaseConfig, DatabasePool, with_boxed_database};
+use testkit_core::{DatabaseConfig, DatabasePool, TestDatabaseInstance, with_boxed_database};
 use testkit_postgres::{PostgresBackend, PostgresError, postgres_backend_with_config};
 
 // Helper function to create a test config with the correct hostname
 #[allow(dead_code)]
 fn test_config() -> DatabaseConfig {
-    // Use "postgres" as the hostname
-    let admin_url = "postgres://postgres:postgres@postgres:5432/postgres";
-    let user_url = "postgres://postgres:postgres@postgres:5432/postgres";
+    let admin_url = "postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable";
+    let user_url = "postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable";
     DatabaseConfig::new(admin_url, user_url)
+}
+
+// Helper function to check if an error is a connection error
+#[allow(dead_code)]
+fn is_connection_error(err: &PostgresError) -> bool {
+    let err_str = err.to_string();
+    err_str.contains("connection refused")
+        || err_str.contains("timeout")
+        || err_str.contains("does not exist")
+        || err_str.contains("pool timed out")
 }
 
 // Helper to create a test backend
@@ -414,7 +424,7 @@ async fn test_boxed_database_api() {
         .expect("Failed to create backend");
 
     // Create a local variable to capture in the setup closure
-    let table_name = String::from("test_table_boxed_api");
+    let table_name = String::from("test_table");
     let table_name_clone = table_name.clone(); // Clone the value to avoid move
 
     // Create a database using the boxed API to handle the captured variable
@@ -439,7 +449,12 @@ async fn test_boxed_database_api() {
         })
         .execute()
         .await
-        .expect("Failed to create database with boxed API");
+        .expect("Failed to create context with test database");
+
+    println!(
+        "Created test database for transaction test: {}",
+        ctx.db.name()
+    );
 
     // Verify the table exists with the expected name
     let conn = ctx
@@ -476,5 +491,82 @@ async fn test_boxed_database_api() {
         .expect("Failed to query table");
 
     assert_eq!(rows.len(), 1, "Should have one row");
-    assert_eq!(rows[0].get::<_, String>("value"), "test value");
+    assert_eq!(rows[0].get::<&str, String>("value"), "test value");
+}
+
+#[tokio::test]
+async fn test_basic_connection() {
+    // Create the backend with our test config
+    let backend = match postgres_backend_with_config(test_config()).await {
+        Ok(b) => b,
+        Err(e) => {
+            if is_connection_error(&e) {
+                println!("Skipping test: PostgreSQL appears to be unavailable");
+                return;
+            }
+            panic!("Failed to create backend: {:?}", e);
+        }
+    };
+
+    // Create a test database instance with the backend and config
+    let db = match TestDatabaseInstance::new(backend.clone(), test_config()).await {
+        Ok(db) => db,
+        Err(e) => {
+            if is_connection_error(&e) {
+                println!("Skipping test: PostgreSQL appears to be unavailable");
+                return;
+            }
+            panic!("Failed to create test database: {:?}", e);
+        }
+    };
+
+    println!(
+        "Created test database for basic connection test: {}",
+        db.name()
+    );
+
+    // Get a connection from the pool
+    let conn = match db.pool.acquire().await {
+        Ok(conn) => conn,
+        Err(e) => panic!("Failed to acquire connection: {:?}", e),
+    };
+
+    // Create a test table
+    match conn
+        .client()
+        .execute(
+            "CREATE TABLE test_table (id SERIAL PRIMARY KEY, value TEXT)",
+            &[],
+        )
+        .await
+    {
+        Ok(_) => {}
+        Err(e) => panic!("Failed to create table: {:?}", e),
+    }
+
+    // Insert some test data
+    match conn
+        .client()
+        .execute(
+            "INSERT INTO test_table (value) VALUES ($1)",
+            &[&"test value"],
+        )
+        .await
+    {
+        Ok(_) => {}
+        Err(e) => panic!("Failed to insert data: {:?}", e),
+    }
+
+    // Query the data
+    let rows = match conn
+        .client()
+        .query("SELECT value FROM test_table", &[])
+        .await
+    {
+        Ok(rows) => rows,
+        Err(e) => panic!("Failed to query data: {:?}", e),
+    };
+
+    assert_eq!(rows.len(), 1, "Should have one row");
+    assert_eq!(rows[0].get::<&str, String>("value"), "test value");
 }

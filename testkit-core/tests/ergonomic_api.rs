@@ -105,14 +105,8 @@ async fn test_direct_api() {
 
     // Test the direct methods without boxed_async
     let ctx = testkit_core::with_boxed_database(backend)
-        .setup_async(|_conn| async {
-            println!("Setting up database");
-            Ok(())
-        })
-        .transaction(|_conn| async {
-            println!("Running transaction");
-            Ok(())
-        })
+        .setup_async(|_conn| async { Ok(()) })
+        .transaction(|_conn| async { Ok(()) })
         .run()
         .await;
 
@@ -127,18 +121,12 @@ async fn test_with_db_test_macro() {
     // Test the db_test! macro
     let ctx = testkit_core::db_test!(backend)
         .setup_async({
-            let table = table_name.clone();
-            move |_conn| async move {
-                println!("Creating table: {}", table);
-                Ok(())
-            }
+            let _table = table_name.clone();
+            move |_conn| async move { Ok(()) }
         })
         .transaction({
-            let table = table_name;
-            move |_conn| async move {
-                println!("Inserting into table: {}", table);
-                Ok(())
-            }
+            let _table = table_name;
+            move |_conn| async move { Ok(()) }
         })
         .run()
         .await;
@@ -156,20 +144,14 @@ async fn test_with_capturing_variables() {
     // Test that we can correctly capture variables without having to wrap in boxed_async
     let ctx = testkit_core::with_boxed_database(backend)
         .setup_async({
-            let table = table_name.clone();
-            let columns = column_names.clone();
-            move |_conn| async move {
-                println!("Creating table '{}' with columns: {:?}", table, columns);
-                Ok(())
-            }
+            let _table = table_name.clone();
+            let _columns = column_names.clone();
+            move |_conn| async move { Ok(()) }
         })
         .transaction({
-            let table = table_name;
-            let count = row_count;
-            move |_conn| async move {
-                println!("Inserting {} rows into {}", count, table);
-                Ok(())
-            }
+            let _table = table_name;
+            let _count = row_count;
+            move |_conn| async move { Ok(()) }
         })
         .run()
         .await;

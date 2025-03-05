@@ -11,6 +11,8 @@ pub struct DatabaseConfig {
     pub admin_url: String,
     /// Connection string for regular operations
     pub user_url: String,
+    /// Maximum number of connections to the database
+    pub max_connections: Option<usize>,
 }
 
 impl Default for DatabaseConfig {
@@ -27,6 +29,7 @@ impl DatabaseConfig {
         Self {
             admin_url: admin_url.into(),
             user_url: user_url.into(),
+            max_connections: None,
         }
     }
 

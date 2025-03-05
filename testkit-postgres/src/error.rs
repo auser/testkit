@@ -28,6 +28,10 @@ pub enum PostgresError {
     #[error("Configuration error: {0}")]
     ConfigError(String),
 
+    /// Error creating a pool
+    #[error("Pool creation error: {0}")]
+    PoolCreationError(String),
+
     /// Any other error
     #[error("Other error: {0}")]
     Other(String),

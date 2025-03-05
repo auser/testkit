@@ -4,7 +4,6 @@ use std::marker::PhantomData;
 
 use crate::testdb::{DatabaseBackend, DatabaseConfig};
 
-mod and_then;
 pub mod boxed;
 mod setup;
 mod with_database;
@@ -14,13 +13,44 @@ mod with_transaction;
 mod tests;
 
 // Re-export core components (simplified version)
-pub use and_then::AndThenHandler;
 pub use boxed::{BoxedDatabaseEntryPoint, with_boxed_database, with_boxed_database_config};
 pub use setup::{SetupHandler, setup};
 pub use with_database::DatabaseHandler;
 pub use with_transaction::{
     DatabaseTransactionHandler, TransactionFnHandler, with_db_transaction, with_transaction,
 };
+
+// Add minimal implementation of AndThenHandler to fix linter errors
+/// Handler that executes two handlers in sequence
+pub struct AndThenHandler<DB, A, B, F>
+where
+    DB: DatabaseBackend + Send + Sync + Debug + 'static,
+    A: TransactionHandler<DB> + Send + Sync,
+    B: TransactionHandler<DB, Error = A::Error> + Send + Sync,
+    F: FnOnce(A::Item) -> B + Send + Sync + 'static,
+{
+    first: A,
+    next_fn: F,
+    _phantom: PhantomData<(DB, B)>,
+}
+
+#[async_trait]
+impl<DB, A, B, F> TransactionHandler<DB> for AndThenHandler<DB, A, B, F>
+where
+    DB: DatabaseBackend + Send + Sync + Debug + 'static,
+    A: TransactionHandler<DB> + Send + Sync,
+    B: TransactionHandler<DB, Error = A::Error> + Send + Sync,
+    F: FnOnce(A::Item) -> B + Send + Sync + 'static,
+{
+    type Item = B::Item;
+    type Error = A::Error;
+
+    async fn execute(self, ctx: &mut crate::TestContext<DB>) -> Result<Self::Item, Self::Error> {
+        let result = self.first.execute(ctx).await?;
+        let next = (self.next_fn)(result);
+        next.execute(ctx).await
+    }
+}
 
 /// Database handlers for the testkit crate
 ///
@@ -202,7 +232,6 @@ where
     handler.run_with_database(backend).await
 }
 
-// These wrapper types are needed for type compatibility in the and_then chains
 /// Helper wrapper for SetupHandler
 pub struct SetupHandlerWrapper<DB, S, E>
 where

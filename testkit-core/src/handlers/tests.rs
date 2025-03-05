@@ -115,12 +115,8 @@ where
     // Reset state before test
     reset_counters();
 
-    println!("--- Starting test: {} ---", test_name);
-
     // Run the test
     test_fn().await;
-
-    println!("--- Finished test: {} ---", test_name);
 
     // Reset state after test to avoid interference with next test
     reset_counters();
@@ -348,8 +344,6 @@ async fn test_error_in_setup_with_transaction() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_database_entry_point_directly() {
     with_test_fixture("test_database_entry_point_directly", || async {
-        println!("Executing entry point directly");
-
         let backend = MockBackend::new();
         let ctx = with_boxed_database(backend)
             .execute()
@@ -362,8 +356,6 @@ async fn test_database_entry_point_directly() {
             "Expected DB name to start with 'testkit_', got: {}",
             ctx.db.name()
         );
-
-        println!("Test completed successfully");
     })
     .await;
 }
@@ -371,10 +363,7 @@ async fn test_database_entry_point_directly() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_isolated_transaction() {
     with_test_fixture("test_isolated_transaction", || async {
-        println!("Created MockBackend");
-
         // Use direct transaction function marking
-        println!("Directly marking transaction called");
         mark_transaction_called();
 
         assert!(was_transaction_called());
