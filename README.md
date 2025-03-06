@@ -494,10 +494,6 @@ For the `sqlx/postgres` implementation, we need to implement:
 4. **`SqlxTransaction`** - Implementing the `DatabaseTransaction` trait
 5. **Transaction Manager** - Implementing the `DBTransactionManager` trait
 
-## License
-
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
-
 ## Implementing a Custom Backend
 
 You can implement your own database backends by implementing the core traits provided by the library:
@@ -717,3 +713,7 @@ async fn test_with_custom_backend() {
 3. **Resource Cleanup**: Ensure database instances are properly cleaned up
 4. **Transaction Support**: Implement proper transaction handling if your database supports it
 5. **Security**: Make proper use of the admin vs. user connection separation
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
