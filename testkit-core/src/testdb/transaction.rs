@@ -137,6 +137,17 @@ pub mod tests {
             Ok(MockBackend)
         }
 
+        async fn connect(&self, _name: &DatabaseName) -> Result<Self::Connection, Self::Error> {
+            Ok(MockConnection(0))
+        }
+
+        async fn connect_with_string(
+            &self,
+            _connection_string: &str,
+        ) -> Result<Self::Connection, Self::Error> {
+            Ok(MockConnection(0))
+        }
+
         async fn create_pool(
             &self,
             _name: &DatabaseName,

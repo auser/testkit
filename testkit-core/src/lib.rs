@@ -1,7 +1,7 @@
 mod context;
 mod handlers;
 mod testdb;
-mod utils;
+pub mod utils;
 
 // Re-exported types and traits
 pub use context::*;
@@ -11,7 +11,7 @@ pub use utils::*;
 
 // The boxed_async macro is already exported with #[macro_export]
 
-use std::fmt::Debug;
+use std::{fmt::Debug, pin::Pin};
 
 /// A test context that contains a database instance
 #[derive(Clone)]
@@ -175,6 +175,17 @@ pub mod tests {
                 Ok(Self)
             }
 
+            async fn connect(&self, _name: &DatabaseName) -> Result<Self::Connection, Self::Error> {
+                Ok(MockConnection)
+            }
+
+            async fn connect_with_string(
+                &self,
+                _connection_string: &str,
+            ) -> Result<Self::Connection, Self::Error> {
+                Ok(MockConnection)
+            }
+
             async fn create_pool(
                 &self,
                 _name: &DatabaseName,
@@ -202,4 +213,114 @@ pub mod tests {
             }
         }
     }
+}
+
+/// Execute a function with a newly created connection and automatically close it
+///
+/// This function creates a connection to the database with the given name using the
+/// provided backend, then executes the operation with that connection. The connection
+/// is automatically closed when the operation completes.
+///
+/// This is the most efficient way to perform a one-off database operation without
+/// the overhead of creating and managing a connection pool.
+///
+/// # Example
+/// ```rust,no_run
+/// use testkit_core::{with_connection, DatabaseBackend, DatabaseName, boxed_async};
+/// use std::fmt::{Display, Formatter};
+///
+/// // Define a custom error type for our example
+/// #[derive(Debug)]
+/// struct ExampleError(String);
+///
+/// impl std::error::Error for ExampleError {}
+///
+/// impl Display for ExampleError {
+///     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+///         write!(f, "{}", self.0)
+///     }
+/// }
+///
+/// async fn example<B: DatabaseBackend>(backend: B, name: &DatabaseName) -> Result<(), B::Error>
+/// where B::Error: From<ExampleError> {
+///     with_connection(backend, name, |conn| boxed_async!(async move {
+///         // Perform operations with the connection
+///         Ok::<(), ExampleError>(())
+///     })).await
+/// }
+/// ```
+pub async fn with_connection<B, F, R, E>(
+    backend: B,
+    name: &DatabaseName,
+    operation: F,
+) -> Result<R, B::Error>
+where
+    B: DatabaseBackend,
+    F: FnOnce(&B::Connection) -> Pin<Box<dyn Future<Output = Result<R, E>> + Send>> + Send,
+    E: std::error::Error + Send + Sync + 'static,
+    B::Error: From<E>,
+{
+    // Create a connection
+    let conn = backend.connect(name).await?;
+
+    // Run the operation
+    let result = operation(&conn).await.map_err(|e| B::Error::from(e))?;
+
+    // Connection will be dropped automatically when it goes out of scope
+    Ok(result)
+}
+
+/// Execute a function with a newly created connection using a connection string
+///
+/// This function creates a connection to the database using the provided connection string
+/// and backend, then executes the operation with that connection. The connection is
+/// automatically closed when the operation completes.
+///
+/// This is the most efficient way to perform a one-off database operation without
+/// the overhead of creating and managing a connection pool.
+///
+/// # Example
+/// ```rust,no_run
+/// use testkit_core::{with_connection_string, DatabaseBackend, boxed_async};
+/// use std::fmt::{Display, Formatter};
+///
+/// // Define a custom error type for our example
+/// #[derive(Debug)]
+/// struct ExampleError(String);
+///
+/// impl std::error::Error for ExampleError {}
+///
+/// impl Display for ExampleError {
+///     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+///         write!(f, "{}", self.0)
+///     }
+/// }
+///
+/// async fn example<B: DatabaseBackend>(backend: B, connection_string: &str) -> Result<(), B::Error>
+/// where B::Error: From<ExampleError> {
+///     with_connection_string(backend, connection_string, |conn| boxed_async!(async move {
+///         // Perform operations with the connection
+///         Ok::<(), ExampleError>(())
+///     })).await
+/// }
+/// ```
+pub async fn with_connection_string<B, F, R, E>(
+    backend: B,
+    connection_string: &str,
+    operation: F,
+) -> Result<R, B::Error>
+where
+    B: DatabaseBackend,
+    F: FnOnce(&B::Connection) -> Pin<Box<dyn Future<Output = Result<R, E>> + Send>> + Send,
+    E: std::error::Error + Send + Sync + 'static,
+    B::Error: From<E>,
+{
+    // Create a connection using the connection string
+    let conn = backend.connect_with_string(connection_string).await?;
+
+    // Run the operation
+    let result = operation(&conn).await.map_err(|e| B::Error::from(e))?;
+
+    // Connection will be dropped automatically when it goes out of scope
+    Ok(result)
 }

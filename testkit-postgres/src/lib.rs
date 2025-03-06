@@ -26,12 +26,44 @@ pub use tokio_postgres::*;
 pub use sqlx_postgres::*;
 
 // Convenience re-exports
+pub use testkit_core::with_connection;
+pub use testkit_core::with_connection_string;
 pub use testkit_core::with_database;
 #[cfg(feature = "postgres")]
 pub use testkit_core::{with_boxed_database, with_boxed_database_config};
 
 // Re-export the boxed_async macro for easily creating boxed async blocks
 pub use testkit_core::boxed_async;
+
+/// Execute a function with a direct database connection using SQLx
+/// This is the most efficient way to perform a one-off database operation
+/// The connection is automatically closed when the operation completes
+#[cfg(feature = "sqlx")]
+pub async fn with_sqlx_connection<F, R, E>(
+    connection_string: impl Into<String>,
+    operation: F,
+) -> Result<R, PostgresError>
+where
+    F: FnOnce(&mut sqlx_postgres::SqlxConnection) -> futures::future::BoxFuture<'_, Result<R, E>>,
+    E: std::error::Error + Send + Sync + 'static,
+{
+    sqlx_postgres::SqlxConnection::with_connection(connection_string, operation).await
+}
+
+/// Execute a function with a direct database connection using tokio-postgres
+/// This is the most efficient way to perform a one-off database operation
+/// The connection is automatically closed when the operation completes
+#[cfg(feature = "postgres")]
+pub async fn with_postgres_connection<F, R, E>(
+    connection_string: impl Into<String>,
+    operation: F,
+) -> Result<R, PostgresError>
+where
+    F: FnOnce(&tokio_postgres::PostgresConnection) -> futures::future::BoxFuture<'_, Result<R, E>>,
+    E: std::error::Error + Send + Sync + 'static,
+{
+    tokio_postgres::PostgresConnection::with_connection(connection_string, operation).await
+}
 
 /// Example of how to use the boxed database API with PostgreSQL
 ///

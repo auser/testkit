@@ -152,6 +152,21 @@ impl DatabaseBackend for MockBackend {
         })
     }
 
+    async fn connect(&self, name: &DatabaseName) -> Result<Self::Connection, Self::Error> {
+        Ok(MockConnection {
+            connection_string: format!("mock://db/{}", name),
+        })
+    }
+
+    async fn connect_with_string(
+        &self,
+        _connection_string: &str,
+    ) -> Result<Self::Connection, Self::Error> {
+        Ok(MockConnection {
+            connection_string: "mock://db/test".to_string(),
+        })
+    }
+
     async fn create_database(
         &self,
         _pool: &Self::Pool,

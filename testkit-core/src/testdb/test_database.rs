@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use parking_lot::Mutex;
 use std::fmt::{Debug, Display};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -98,6 +100,21 @@ pub trait DatabaseBackend: Send + Sync + Clone + Debug {
         config: &DatabaseConfig,
     ) -> Result<Self::Pool, Self::Error>;
 
+    /// Create a single connection to the given database
+    /// This is useful for cases where a full pool is not needed
+    async fn connect(&self, name: &DatabaseName) -> Result<Self::Connection, Self::Error> {
+        // Default implementation connects using the connection string for the given database name
+        let connection_string = self.connection_string(name);
+        self.connect_with_string(&connection_string).await
+    }
+
+    /// Create a single connection using a connection string directly
+    /// This is useful for connecting to databases that may not have been created by TestKit
+    async fn connect_with_string(
+        &self,
+        connection_string: &str,
+    ) -> Result<Self::Connection, Self::Error>;
+
     /// Create a new database with the given name
     async fn create_database(
         &self,
@@ -175,6 +192,30 @@ where
     /// Returns a reference to the database name
     pub fn name(&self) -> &DatabaseName {
         &self.db_name
+    }
+
+    /// Create a single connection to the database without using the pool
+    /// This is useful for cases where a single connection is needed for a specific operation
+    pub async fn connect(&self) -> Result<B::Connection, B::Error> {
+        self.backend.connect(&self.db_name).await
+    }
+
+    /// Execute a function with a one-off connection and automatically close it after use
+    /// This is the most efficient way to perform a one-off database operation
+    pub async fn with_connection<F, R, E>(&self, operation: F) -> Result<R, B::Error>
+    where
+        F: FnOnce(&B::Connection) -> Pin<Box<dyn Future<Output = Result<R, E>> + Send>> + Send,
+        E: std::error::Error + Send + Sync + 'static,
+        B::Error: From<E>,
+    {
+        // Create a connection
+        let conn = self.connect().await?;
+
+        // Run the operation
+        let result = operation(&conn).await.map_err(|e| B::Error::from(e))?;
+
+        // Connection will be dropped automatically when it goes out of scope
+        Ok(result)
     }
 
     /// Get a connection from the pool or acquire a new one

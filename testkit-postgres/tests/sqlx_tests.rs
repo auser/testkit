@@ -4,8 +4,9 @@
 use sqlx::Row;
 use std::future::Future;
 use std::pin::Pin;
+use testkit_core::{DatabaseBackend, DatabaseName, TestContext, TestDatabaseInstance};
 use testkit_core::{DatabaseConfig, DatabasePool, boxed_async, with_boxed_database};
-use testkit_postgres::{PostgresError, TransactionManager};
+use testkit_postgres::{PostgresError, SqlxConnection, TransactionManager};
 use testkit_postgres::{
     SqlxPostgresBackend as PostgresBackend,
     sqlx_postgres_backend_with_config as postgres_backend_with_config,
@@ -225,6 +226,68 @@ async fn test_sqlx_transaction() {
 }
 
 #[tokio::test]
+async fn test_sqlx_with_connection() {
+    // Create a backend
+    let backend = match test_backend().await {
+        Ok(backend) => backend,
+        Err(e) => {
+            if is_connection_error(&e) {
+                println!("Skipping test: PostgreSQL appears to be unavailable");
+                return;
+            }
+            panic!("Failed to create backend: {:?}", e);
+        }
+    };
+    let db_name = DatabaseName::new(None);
+    let datbase_config = test_config();
+    let backend_clone = backend.clone();
+    let test_context = TestDatabaseInstance::new(backend, datbase_config).await;
+
+    println!("----- created database -----");
+    // Create a temporary database using the boxed API
+    let backend_clone_2 = backend_clone.clone();
+
+    // Get a connection
+    let admin_url_connection_string =
+        "postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable";
+    let conn = backend_clone_2
+        .connect_with_string(admin_url_connection_string)
+        .await
+        .unwrap();
+    let conn2 = conn.clone();
+    let rows = SqlxConnection::with_connection(admin_url_connection_string, |conn| {
+        boxed_async!(async move {
+            // let rows = conn
+            //     .query(
+            //         "CREATE TABLE test_table (id SERIAL PRIMARY KEY, name TEXT)",
+            //         &[],
+            //     )
+            //     .await?;
+            sqlx::query("DELETE FROM test_table")
+                .execute(conn.pool_connection())
+                .await?;
+            let insert_query = format!("INSERT INTO test_table (name) VALUES ($1)");
+            let rows = sqlx::query(&insert_query)
+                .bind("boxed_test_name")
+                .execute(conn.pool_connection())
+                .await?;
+            Ok::<_, PostgresError>(rows)
+        })
+    })
+    .await
+    .unwrap();
+    let rows = sqlx::query("SELECT * FROM test_table")
+        .fetch_all(conn2.pool_connection())
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    let name: &str = rows[0].get("name");
+    assert_eq!(
+        name, "boxed_test_name",
+        "Expected name to be boxed_test_name"
+    );
+}
+#[tokio::test]
 async fn test_sqlx_boxed_api() {
     // Create a backend
     let backend = match test_backend().await {
@@ -265,13 +328,7 @@ async fn test_sqlx_boxed_api() {
         .execute()
         .await
     {
-        Ok(ctx) => {
-            println!(
-                "Created test database for boxed API test: {}",
-                ctx.db.name()
-            );
-            ctx
-        }
+        Ok(ctx) => ctx,
         Err(e) => {
             if is_connection_error(&e) {
                 println!("Skipping test: PostgreSQL appears to be unavailable");

@@ -69,7 +69,18 @@ impl DatabaseBackend for MockBackend {
     type Error = MockError;
 
     async fn new(_config: DatabaseConfig) -> Result<Self, Self::Error> {
-        Ok(MockBackend)
+        Ok(Self)
+    }
+
+    async fn connect(&self, _name: &DatabaseName) -> Result<Self::Connection, Self::Error> {
+        Ok(MockConnection)
+    }
+
+    async fn connect_with_string(
+        &self,
+        _connection_string: &str,
+    ) -> Result<Self::Connection, Self::Error> {
+        Ok(MockConnection)
     }
 
     async fn create_pool(

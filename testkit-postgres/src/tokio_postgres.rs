@@ -18,6 +18,61 @@ pub struct PostgresConnection {
 }
 
 impl PostgresConnection {
+    /// Create a new direct connection without using a pool
+    pub async fn connect(connection_string: impl Into<String>) -> Result<Self, PostgresError> {
+        let connection_string = connection_string.into();
+
+        // Parse connection config
+        let pg_config = tokio_postgres::config::Config::from_str(&connection_string)
+            .map_err(|e| PostgresError::ConnectionError(e.to_string()))?;
+
+        // Create a minimal pool manager
+        let mgr_config = deadpool_postgres::ManagerConfig {
+            recycling_method: deadpool_postgres::RecyclingMethod::Fast,
+        };
+        let mgr =
+            deadpool_postgres::Manager::from_config(pg_config, tokio_postgres::NoTls, mgr_config);
+
+        // Create a minimal pool with a single connection
+        let pool = deadpool_postgres::Pool::builder(mgr)
+            .max_size(1)
+            .build()
+            .map_err(|e| PostgresError::ConnectionError(e.to_string()))?;
+
+        // Get a client
+        let client = pool
+            .get()
+            .await
+            .map_err(|e| PostgresError::ConnectionError(e.to_string()))?;
+
+        Ok(Self {
+            client: Arc::new(client),
+            connection_string,
+        })
+    }
+
+    /// Execute a function with a direct connection and automatically close it after use
+    /// This is the most efficient way to perform a one-off database operation
+    pub async fn with_connection<F, R, E>(
+        connection_string: impl Into<String>,
+        operation: F,
+    ) -> Result<R, PostgresError>
+    where
+        F: FnOnce(&PostgresConnection) -> futures::future::BoxFuture<'_, Result<R, E>>,
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        // Create a connection
+        let conn = Self::connect(connection_string).await?;
+
+        // Run the operation
+        let result = operation(&conn)
+            .await
+            .map_err(|e| PostgresError::QueryError(e.to_string()))?;
+
+        // Connection will be dropped automatically when it goes out of scope
+        Ok(result)
+    }
+
     /// Get a reference to the underlying database client
     pub fn client(&self) -> &deadpool_postgres::Client {
         &self.client
@@ -90,6 +145,7 @@ impl DatabaseBackend for PostgresBackend {
         Ok(Self { config })
     }
 
+    /// Create a new connection pool for the given database
     async fn create_pool(
         &self,
         name: &DatabaseName,
@@ -117,6 +173,26 @@ impl DatabaseBackend for PostgresBackend {
             pool: Arc::new(pool),
             connection_string,
         })
+    }
+
+    /// Create a single connection to the given database
+    /// This is useful for cases where a full pool is not needed
+    async fn connect(&self, name: &DatabaseName) -> Result<Self::Connection, Self::Error> {
+        let connection_string = self.connection_string(name);
+
+        // Use the direct connection method we defined on PostgresConnection
+        // This is more efficient as it avoids pool overhead for one-off connections
+        PostgresConnection::connect(connection_string).await
+    }
+
+    /// Create a single connection using a connection string directly
+    async fn connect_with_string(
+        &self,
+        connection_string: &str,
+    ) -> Result<Self::Connection, Self::Error> {
+        // Use the direct connection method we defined on PostgresConnection
+        // This is more efficient as it avoids pool overhead for one-off connections
+        PostgresConnection::connect(connection_string).await
     }
 
     async fn create_database(

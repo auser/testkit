@@ -1,6 +1,14 @@
 use std::future::Future;
 use std::pin::Pin;
 
+/// Internal helper function for the boxed_async macro
+pub fn box_future<F, O>(future: F) -> Pin<Box<dyn Future<Output = O> + Send>>
+where
+    F: Future<Output = O> + Send + 'static,
+{
+    Box::pin(future)
+}
+
 /// Macro to automatically box an async block for use with the boxed database API
 ///
 /// This macro makes the boxed database API more ergonomic by hiding the need to
@@ -8,11 +16,11 @@ use std::pin::Pin;
 #[macro_export]
 macro_rules! boxed_async {
     (async $block:block) => {
-        Box::pin(async $block) as std::pin::Pin<Box<dyn std::future::Future<Output = _> + Send + '_>>
+        Box::pin(async $block)
     };
-    (async move $block:block) => {
-        Box::pin(async move $block) as std::pin::Pin<Box<dyn std::future::Future<Output = _> + Send + '_>>
-    };
+    (async move $block:block) => {{
+        Box::pin(async move $block)
+    }};
 }
 
 /// Macro to implement the TransactionHandler trait for a type

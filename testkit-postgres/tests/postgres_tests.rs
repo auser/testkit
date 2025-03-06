@@ -3,7 +3,9 @@
 
 use std::future::Future;
 use std::pin::Pin;
-use testkit_core::{DatabaseConfig, DatabasePool, TestDatabaseInstance, with_boxed_database};
+use testkit_core::{
+    DatabaseBackend, DatabaseConfig, DatabasePool, TestDatabaseInstance, with_boxed_database,
+};
 use testkit_postgres::{PostgresBackend, PostgresError, postgres_backend_with_config};
 
 // Helper function to create a test config with the correct hostname
@@ -569,4 +571,146 @@ async fn test_basic_connection() {
 
     assert_eq!(rows.len(), 1, "Should have one row");
     assert_eq!(rows[0].get::<&str, String>("value"), "test value");
+}
+
+#[tokio::test]
+async fn test_with_connection() {
+    // Create a backend
+    let backend = match test_backend().await {
+        Ok(backend) => backend,
+        Err(e) => {
+            if is_connection_error(&e) {
+                println!("Skipping test: PostgreSQL appears to be unavailable");
+                return;
+            }
+            panic!("Failed to create backend: {:?}", e);
+        }
+    };
+
+    // Create a database with a test table
+    let ctx = match with_boxed_database(backend)
+        .setup(|conn| {
+            Box::pin(async move {
+                // Create a test table and insert data
+                conn.client()
+                    .execute(
+                        "CREATE TABLE one_off_test (id SERIAL PRIMARY KEY, value TEXT)",
+                        &[],
+                    )
+                    .await?;
+
+                conn.client()
+                    .execute(
+                        "INSERT INTO one_off_test (value) VALUES ($1)",
+                        &[&"test_value"],
+                    )
+                    .await?;
+
+                Ok(())
+            })
+        })
+        .execute()
+        .await
+    {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            if is_connection_error(&e) {
+                println!("Skipping test: PostgreSQL appears to be unavailable");
+                return;
+            }
+            panic!("Failed to create database: {:?}", e);
+        }
+    };
+
+    // Test with_connection functionality
+    let conn_string = ctx.db.backend().connection_string(ctx.db.name());
+    println!("Debug: Using connection string: {}", conn_string);
+
+    // Use one-off connection to verify data
+    let result = testkit_postgres::with_postgres_connection(conn_string, |conn| {
+        Box::pin(async move {
+            let rows = conn
+                .client()
+                .query("SELECT * FROM one_off_test", &[])
+                .await
+                .map_err(|e| PostgresError::QueryError(e.to_string()))?;
+
+            assert_eq!(rows.len(), 1, "Expected 1 row");
+            Ok::<_, PostgresError>(())
+        })
+    })
+    .await;
+
+    assert!(result.is_ok(), "with_postgres_connection should succeed");
+}
+
+#[tokio::test]
+async fn test_postgres_with_connection() {
+    // Create a backend
+    let backend = match test_backend().await {
+        Ok(backend) => backend,
+        Err(e) => {
+            if is_connection_error(&e) {
+                println!("Skipping test: PostgreSQL appears to be unavailable");
+                return;
+            }
+            panic!("Failed to create backend: {:?}", e);
+        }
+    };
+
+    // Create a database with a test table
+    let ctx = match with_boxed_database(backend)
+        .setup(|conn| {
+            Box::pin(async move {
+                // Create a test table and insert data
+                conn.client()
+                    .execute(
+                        "CREATE TABLE one_off_test (id SERIAL PRIMARY KEY, value TEXT)",
+                        &[],
+                    )
+                    .await?;
+
+                conn.client()
+                    .execute(
+                        "INSERT INTO one_off_test (value) VALUES ($1)",
+                        &[&"test_value"],
+                    )
+                    .await?;
+
+                Ok(())
+            })
+        })
+        .execute()
+        .await
+    {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            if is_connection_error(&e) {
+                println!("Skipping test: PostgreSQL appears to be unavailable");
+                return;
+            }
+            panic!("Failed to create database: {:?}", e);
+        }
+    };
+
+    // Test with_connection functionality
+    let conn_string = ctx.db.backend().connection_string(ctx.db.name());
+    println!("Debug: Using connection string: {}", conn_string);
+
+    // Use one-off connection to verify data
+    let result = testkit_postgres::with_postgres_connection(conn_string, |conn| {
+        Box::pin(async move {
+            let rows = conn
+                .client()
+                .query("SELECT * FROM one_off_test", &[])
+                .await
+                .map_err(|e| PostgresError::QueryError(e.to_string()))?;
+
+            assert_eq!(rows.len(), 1, "Expected 1 row");
+            Ok::<_, PostgresError>(())
+        })
+    })
+    .await;
+
+    assert!(result.is_ok(), "with_postgres_connection should succeed");
 }

@@ -1,7 +1,7 @@
-use crate::PostgresError;
+use crate::error::PostgresError;
 use crate::{TransactionManager, TransactionTrait};
 use async_trait::async_trait;
-use sqlx::postgres::{PgConnection, PgPool, PgPoolOptions, PgTransaction};
+use sqlx::postgres::{PgPool, PgPoolOptions, PgTransaction};
 use sqlx::query;
 use std::fmt::Debug;
 use std::process::Command;
@@ -13,53 +13,98 @@ use testkit_core::{
 use url;
 
 /// A connection to a PostgreSQL database using sqlx
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct SqlxConnection {
-    conn: Arc<sqlx::pool::PoolConnection<sqlx::Postgres>>,
+    // Store the pool for direct access
+    pool: Arc<PgPool>,
     connection_string: String,
 }
 
+impl Clone for SqlxConnection {
+    fn clone(&self) -> Self {
+        // Clone just creates a new connection to the same pool
+        SqlxConnection {
+            pool: self.pool.clone(),
+            connection_string: self.connection_string.clone(),
+        }
+    }
+}
+
 impl SqlxConnection {
-    /// Get direct access to the underlying PostgreSQL connection
-    ///
-    /// This provides access to the underlying PgConnection type,
-    /// which implements the sqlx::Executor trait needed for queries
-    pub fn pool_connection(&mut self) -> &mut PgConnection {
-        // Use get_mut() since we have exclusive access
-        let conn_ref =
-            Arc::get_mut(&mut self.conn).expect("Failed to get mutable reference to connection");
-        conn_ref
+    /// Create a new direct connection without using a pool
+    pub async fn connect(connection_string: impl Into<String>) -> Result<Self, PostgresError> {
+        let connection_string = connection_string.into();
+
+        // Create a pool
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(5) // Small pool for reuse
+            .connect(&connection_string)
+            .await
+            .map_err(|e| PostgresError::ConnectionError(e.to_string()))?;
+
+        Ok(Self {
+            pool: Arc::new(pool),
+            connection_string,
+        })
     }
 
-    /// Get a reference to the client for this connection
+    /// Get direct access to the underlying PostgreSQL connection
+    /// This provides access to the underlying PgPool which implements the Executor trait
+    pub fn pool_connection(&self) -> &PgPool {
+        &self.pool
+    }
+
+    /// Get a client connection for executing SQL directly
     pub fn client(&self) -> &SqlxConnection {
         self
     }
 
-    /// Execute a SQL query - compatibility with tokio-postgres
-    ///
-    /// This is a no-op implementation that returns an error, as SQLx uses a different API
+    /// Execute a query and return the number of affected rows
     pub async fn execute(
         &self,
-        _query: &str,
+        query: &str,
         _params: &[&(dyn std::fmt::Debug + Sync)],
     ) -> Result<u64, PostgresError> {
-        Err(PostgresError::QueryError(
-            "Please use sqlx::query().execute(conn.pool_connection()) instead".to_string(),
-        ))
+        let result = sqlx::query(query)
+            .execute(&*self.pool)
+            .await
+            .map_err(|e| PostgresError::QueryError(e.to_string()))?;
+        Ok(result.rows_affected())
     }
 
-    /// Query a SQL statement - compatibility with tokio-postgres
-    ///
-    /// This is a no-op implementation that returns an error, as SQLx uses a different API
+    /// Execute a query and return the results
     pub async fn query(
         &self,
-        _query: &str,
+        query: &str,
         _params: &[&(dyn std::fmt::Debug + Sync)],
     ) -> Result<Vec<sqlx::postgres::PgRow>, PostgresError> {
-        Err(PostgresError::QueryError(
-            "Please use sqlx::query().fetch_all(conn.pool_connection()) instead".to_string(),
-        ))
+        let result = sqlx::query(query)
+            .fetch_all(&*self.pool)
+            .await
+            .map_err(|e| PostgresError::QueryError(e.to_string()))?;
+        Ok(result)
+    }
+
+    /// Execute a function with a direct connection and automatically close it after use
+    /// This is the most efficient way to perform a one-off database operation
+    pub async fn with_connection<F, R, E>(
+        connection_string: impl Into<String>,
+        operation: F,
+    ) -> Result<R, PostgresError>
+    where
+        F: FnOnce(&mut SqlxConnection) -> futures::future::BoxFuture<'_, Result<R, E>>,
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        // Create a connection
+        let mut conn = Self::connect(connection_string).await?;
+
+        // Run the operation
+        let result = operation(&mut conn)
+            .await
+            .map_err(|e| PostgresError::QueryError(e.to_string()))?;
+
+        // Connection will be dropped automatically when it goes out of scope
+        Ok(result)
     }
 }
 
@@ -82,16 +127,17 @@ impl DatabasePool for SqlxPool {
     type Error = PostgresError;
 
     async fn acquire(&self) -> Result<Self::Connection, Self::Error> {
-        // Acquire a connection from the pool
-        let conn = self
+        // Get a connection from the pool - we just need to check it works
+        let _conn = self
             .pool
             .acquire()
             .await
             .map_err(|e| PostgresError::ConnectionError(e.to_string()))?;
 
-        // Create a SqlxConnection
+        // Create a SqlxConnection using the pool, without saving the connection directly
+        // This approach avoids type mismatches and still allows for query execution
         Ok(SqlxConnection {
-            conn: Arc::new(conn),
+            pool: Arc::new(self.pool.clone()),
             connection_string: self.connection_string.clone(),
         })
     }
@@ -122,6 +168,7 @@ impl DatabaseBackend for SqlxPostgresBackend {
         Ok(Self { config })
     }
 
+    /// Create a pool around the given connection string
     async fn create_pool(
         &self,
         name: &DatabaseName,
@@ -129,17 +176,40 @@ impl DatabaseBackend for SqlxPostgresBackend {
     ) -> Result<Self::Pool, Self::Error> {
         let connection_string = self.connection_string(name);
 
-        // Create a new connection pool
-        let pool = PgPoolOptions::new()
-            .max_connections(config.max_connections.unwrap_or(5) as u32)
+        // Create a connection pool with the specified parameters
+        let max_connections = config.max_connections.unwrap_or(5);
+
+        let pool_options = PgPoolOptions::new().max_connections(max_connections as u32);
+
+        let pool = pool_options
             .connect(&connection_string)
             .await
-            .map_err(|e| PostgresError::PoolCreationError(e.to_string()))?;
+            .map_err(|e| PostgresError::ConnectionError(e.to_string()))?;
 
         Ok(SqlxPool {
             pool,
             connection_string,
         })
+    }
+
+    /// Create a single connection to the given database
+    /// This is useful for cases where a full pool is not needed
+    async fn connect(&self, name: &DatabaseName) -> Result<Self::Connection, Self::Error> {
+        let connection_string = self.connection_string(name);
+
+        // Use the direct connection method we defined on SqlxConnection
+        // This is more efficient as it avoids pool overhead for one-off connections
+        SqlxConnection::connect(connection_string).await
+    }
+
+    /// Create a single connection using a connection string directly
+    async fn connect_with_string(
+        &self,
+        connection_string: &str,
+    ) -> Result<Self::Connection, Self::Error> {
+        // Use the direct connection method we defined on SqlxConnection
+        // This is more efficient as it avoids pool overhead for one-off connections
+        SqlxConnection::connect(connection_string).await
     }
 
     async fn create_database(

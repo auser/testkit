@@ -400,7 +400,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testdb::{DatabaseName, TestDatabaseConnection};
+    use crate::testdb::TestDatabaseConnection;
 
     #[derive(Debug, Clone)]
     struct MockError(String);
@@ -465,12 +465,26 @@ mod tests {
         type Error = MockError;
 
         async fn new(_config: crate::DatabaseConfig) -> Result<Self, Self::Error> {
-            Ok(MockBackend)
+            Ok(Self)
+        }
+
+        async fn connect(
+            &self,
+            _name: &crate::DatabaseName,
+        ) -> Result<Self::Connection, Self::Error> {
+            Ok(MockConnection)
+        }
+
+        async fn connect_with_string(
+            &self,
+            _connection_string: &str,
+        ) -> Result<Self::Connection, Self::Error> {
+            Ok(MockConnection)
         }
 
         async fn create_pool(
             &self,
-            _name: &DatabaseName,
+            _name: &crate::DatabaseName,
             _config: &crate::DatabaseConfig,
         ) -> Result<Self::Pool, Self::Error> {
             Ok(MockPool)
@@ -479,16 +493,16 @@ mod tests {
         async fn create_database(
             &self,
             _pool: &Self::Pool,
-            _name: &DatabaseName,
+            _name: &crate::DatabaseName,
         ) -> Result<(), Self::Error> {
             Ok(())
         }
 
-        fn drop_database(&self, _name: &DatabaseName) -> Result<(), Self::Error> {
+        fn drop_database(&self, _name: &crate::DatabaseName) -> Result<(), Self::Error> {
             Ok(())
         }
 
-        fn connection_string(&self, _name: &DatabaseName) -> String {
+        fn connection_string(&self, _name: &crate::DatabaseName) -> String {
             "mock://test".to_string()
         }
     }
