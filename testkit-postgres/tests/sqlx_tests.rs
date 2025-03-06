@@ -1,10 +1,10 @@
 #![allow(clippy::all, unused_must_use, unused_lifetimes)]
-#![cfg(feature = "sqlx")] // This file is specific to sqlx backend
+#![cfg(feature = "with-sqlx")] // This file is specific to sqlx backend
 
 use sqlx::Row;
 use std::future::Future;
 use std::pin::Pin;
-use testkit_core::{DatabaseBackend, DatabaseName, TestContext, TestDatabaseInstance};
+use testkit_core::{DatabaseBackend, TestDatabaseInstance};
 use testkit_core::{DatabaseConfig, DatabasePool, boxed_async, with_boxed_database};
 use testkit_postgres::{PostgresError, SqlxConnection, TransactionManager};
 use testkit_postgres::{
@@ -110,7 +110,7 @@ async fn test_sqlx_simple_query() {
     };
 
     // Get a connection
-    let mut conn = ctx
+    let conn = ctx
         .db
         .pool
         .acquire()
@@ -182,7 +182,7 @@ async fn test_sqlx_transaction() {
     };
 
     // Get a connection
-    let mut conn = ctx
+    let conn = ctx
         .db
         .pool
         .acquire()
@@ -238,10 +238,9 @@ async fn test_sqlx_with_connection() {
             panic!("Failed to create backend: {:?}", e);
         }
     };
-    let db_name = DatabaseName::new(None);
     let datbase_config = test_config();
     let backend_clone = backend.clone();
-    let test_context = TestDatabaseInstance::new(backend, datbase_config).await;
+    let _test_context = TestDatabaseInstance::new(backend, datbase_config).await;
 
     println!("----- created database -----");
     // Create a temporary database using the boxed API
@@ -255,14 +254,8 @@ async fn test_sqlx_with_connection() {
         .await
         .unwrap();
     let conn2 = conn.clone();
-    let rows = SqlxConnection::with_connection(admin_url_connection_string, |conn| {
+    let _rows = SqlxConnection::with_connection(admin_url_connection_string, |conn| {
         boxed_async!(async move {
-            // let rows = conn
-            //     .query(
-            //         "CREATE TABLE test_table (id SERIAL PRIMARY KEY, name TEXT)",
-            //         &[],
-            //     )
-            //     .await?;
             sqlx::query("DELETE FROM test_table")
                 .execute(conn.pool_connection())
                 .await?;
@@ -339,7 +332,7 @@ async fn test_sqlx_boxed_api() {
     };
 
     // Get a connection to query the data
-    let mut conn = ctx
+    let conn = ctx
         .db
         .pool
         .acquire()

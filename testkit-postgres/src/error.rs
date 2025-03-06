@@ -50,14 +50,14 @@ impl From<&str> for PostgresError {
 }
 
 // Feature-specific error conversions
-#[cfg(feature = "postgres")]
+#[cfg(feature = "with-tokio-postgres")]
 impl From<tokio_postgres::Error> for PostgresError {
     fn from(err: tokio_postgres::Error) -> Self {
         Self::QueryError(err.to_string())
     }
 }
 
-#[cfg(feature = "sqlx")]
+#[cfg(feature = "with-sqlx")]
 impl From<sqlx::Error> for PostgresError {
     fn from(err: sqlx::Error) -> Self {
         Self::QueryError(err.to_string())

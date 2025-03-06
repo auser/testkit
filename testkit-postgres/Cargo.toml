@@ -27,9 +27,9 @@ sqlx = { version = "0.8", features = [
 ], optional = true }
 
 [features]
-default = ["sqlx"]
-postgres = ["tokio-postgres", "deadpool-postgres", "postgres-types"]
-sqlx = ["dep:sqlx"]
+default = ["with-tokio-postgres"]
+with-tokio-postgres = ["tokio-postgres", "deadpool-postgres", "postgres-types"]
+with-sqlx = ["dep:sqlx"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util", "macros"] }

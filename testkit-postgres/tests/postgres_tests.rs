@@ -1,5 +1,5 @@
 #![allow(clippy::all, unused_must_use, unused_lifetimes)]
-#![cfg(feature = "postgres")] // This file is specific to tokio-postgres backend
+#![cfg(feature = "tokio-postgres")] // This file is specific to tokio-postgres backend
 
 use std::future::Future;
 use std::pin::Pin;
@@ -453,11 +453,6 @@ async fn test_boxed_database_api() {
         .await
         .expect("Failed to create context with test database");
 
-    println!(
-        "Created test database for transaction test: {}",
-        ctx.db.name()
-    );
-
     // Verify the table exists with the expected name
     let conn = ctx
         .db
@@ -521,11 +516,6 @@ async fn test_basic_connection() {
             panic!("Failed to create test database: {:?}", e);
         }
     };
-
-    println!(
-        "Created test database for basic connection test: {}",
-        db.name()
-    );
 
     // Get a connection from the pool
     let conn = match db.pool.acquire().await {

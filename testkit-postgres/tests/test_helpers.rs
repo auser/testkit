@@ -32,7 +32,7 @@ where
     move |conn| Box::pin(f(conn))
 }
 
-#[cfg(feature = "postgres")]
+#[cfg(feature = "with-tokio-postgres")]
 pub mod postgres_helpers {
     use super::*;
     use testkit_postgres::{PostgresBackend, postgres_backend_with_config};
@@ -43,7 +43,7 @@ pub mod postgres_helpers {
     }
 }
 
-#[cfg(feature = "sqlx")]
+#[cfg(feature = "with-sqlx")]
 pub mod sqlx_helpers {
     use super::*;
     use testkit_postgres::{SqlxPostgresBackend, sqlx_postgres_backend_with_config};

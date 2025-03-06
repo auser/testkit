@@ -2,10 +2,10 @@
 mod common_traits;
 pub use common_traits::*;
 
-#[cfg(feature = "postgres")]
+#[cfg(feature = "with-tokio-postgres")]
 pub mod tokio_postgres;
 
-#[cfg(feature = "sqlx")]
+#[cfg(feature = "with-sqlx")]
 pub mod sqlx_postgres;
 
 // Error types for the library
@@ -19,17 +19,17 @@ pub use testkit_core::{
 };
 
 // Export feature-specific implementations
-#[cfg(feature = "postgres")]
+#[cfg(feature = "with-tokio-postgres")]
 pub use tokio_postgres::*;
 
-#[cfg(feature = "sqlx")]
+#[cfg(feature = "with-sqlx")]
 pub use sqlx_postgres::*;
 
 // Convenience re-exports
 pub use testkit_core::with_connection;
 pub use testkit_core::with_connection_string;
 pub use testkit_core::with_database;
-#[cfg(feature = "postgres")]
+#[cfg(feature = "with-tokio-postgres")]
 pub use testkit_core::{with_boxed_database, with_boxed_database_config};
 
 // Re-export the boxed_async macro for easily creating boxed async blocks
@@ -38,7 +38,7 @@ pub use testkit_core::boxed_async;
 /// Execute a function with a direct database connection using SQLx
 /// This is the most efficient way to perform a one-off database operation
 /// The connection is automatically closed when the operation completes
-#[cfg(feature = "sqlx")]
+#[cfg(feature = "with-sqlx")]
 pub async fn with_sqlx_connection<F, R, E>(
     connection_string: impl Into<String>,
     operation: F,
@@ -53,7 +53,7 @@ where
 /// Execute a function with a direct database connection using tokio-postgres
 /// This is the most efficient way to perform a one-off database operation
 /// The connection is automatically closed when the operation completes
-#[cfg(feature = "postgres")]
+#[cfg(feature = "with-tokio-postgres")]
 pub async fn with_postgres_connection<F, R, E>(
     connection_string: impl Into<String>,
     operation: F,
@@ -70,9 +70,10 @@ where
 /// This example shows how to use the boxed database API to work with closures that
 /// capture local variables. Use the `boxed_async!` macro to avoid manually boxing the async blocks.
 ///
-/// ```no_run
+/// ```no_run,ignore
 /// use testkit_core::{with_boxed_database, boxed_async};
-/// use testkit_postgres::{sqlx_postgres_backend as postgres_backend};
+/// // Import from the sqlx_postgres module directly
+/// use testkit_postgres::{PostgresConnection, postgres_backend};
 ///
 /// async fn example() -> Result<(), Box<dyn std::error::Error>> {
 ///     // Create a backend
@@ -84,7 +85,7 @@ where
 ///     
 ///     // Use the boxed database API with the boxed_async! macro
 ///     let ctx = with_boxed_database(backend)
-///         .setup(move |conn| boxed_async!(async move {
+///         .setup(move |conn: &mut PostgresConnection| boxed_async!(async move {
 ///             // Create a table using the captured variable
 ///             let query = format!(
 ///                 "CREATE TABLE {} (id SERIAL PRIMARY KEY, name TEXT NOT NULL)",
@@ -93,7 +94,7 @@ where
 ///             conn.client().execute(&query, &[]).await?;
 ///             Ok(())
 ///         }))
-///         .with_transaction(move |conn| boxed_async!(async move {
+///         .with_transaction(move |conn: &mut PostgresConnection| boxed_async!(async move {
 ///             // Insert data using the cloned variable
 ///             let query = format!("INSERT INTO {} (name) VALUES ($1)", table_name_for_tx);
 ///             conn.client().execute(&query, &[&"John Doe"]).await?;
