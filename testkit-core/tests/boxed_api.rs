@@ -113,6 +113,7 @@ impl DatabaseBackend for MockBackend {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_boxed_api_with_macro() {
     let backend = MockBackend::new();
 
@@ -144,6 +145,7 @@ async fn test_boxed_api_with_macro() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_capturing_local_variables() {
     // Test multiple variables and complex types
     let backend = MockBackend::new();

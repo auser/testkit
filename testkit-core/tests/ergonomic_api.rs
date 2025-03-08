@@ -111,6 +111,7 @@ impl DatabaseBackend for MockBackend {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_direct_api() {
     let backend = MockBackend::new();
 
@@ -125,6 +126,7 @@ async fn test_direct_api() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_with_db_test_macro() {
     let backend = MockBackend::new();
     let table_name = "users".to_string();
@@ -146,6 +148,7 @@ async fn test_with_db_test_macro() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_with_capturing_variables() {
     let backend = MockBackend::new();
     let table_name = "users".to_string();

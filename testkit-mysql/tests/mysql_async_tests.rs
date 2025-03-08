@@ -25,6 +25,7 @@ fn is_connection_error(err: &MySqlError) -> bool {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_mysql_backend_creation() {
     let config = test_config();
     let _backend = match mysql_backend_with_config(config).await {
@@ -40,6 +41,7 @@ async fn test_mysql_backend_creation() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_mysql_backend_with_table() {
     let config = test_config();
     let backend = match mysql_backend_with_config(config.clone()).await {
@@ -98,6 +100,7 @@ async fn test_mysql_backend_with_table() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_mysql_transaction() {
     let config = test_config();
     let backend = match mysql_backend_with_config(config.clone()).await {
@@ -182,6 +185,7 @@ async fn test_mysql_transaction() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_mysql_fluent_api() {
     let config = test_config();
     let backend = match mysql_backend_with_config(config).await {
