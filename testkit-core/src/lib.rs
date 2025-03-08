@@ -1,12 +1,14 @@
 mod context;
 mod handlers;
 mod testdb;
+mod tracing;
 pub mod utils;
 
 // Re-exported types and traits
 pub use context::*;
 pub use handlers::*;
 pub use testdb::*;
+pub use tracing::*;
 pub use utils::*;
 
 // The boxed_async macro is already exported with #[macro_export]

@@ -184,6 +184,28 @@ where
         Ok(inst)
     }
 
+    /// Create a new test database with the given backend and specific name
+    pub async fn new_with_name(
+        backend: B,
+        config: DatabaseConfig,
+        db_name: DatabaseName,
+    ) -> Result<Self, B::Error> {
+        tracing::debug!("Creating connection pool for database: {}", db_name);
+        let pool = backend.create_pool(&db_name, &config).await?;
+
+        tracing::debug!("Creating database: {}", db_name);
+        backend.create_database(&pool, &db_name).await?;
+
+        let inst = Self {
+            backend,
+            pool,
+            db_name,
+            connection_pool: None,
+        };
+
+        Ok(inst)
+    }
+
     /// Returns a reference to the backend
     pub fn backend(&self) -> &B {
         &self.backend

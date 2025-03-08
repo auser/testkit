@@ -59,9 +59,9 @@ postgres-clean:
     psql postgresql://postgres:postgres@postgres:5432/ -c "\l" | grep 'testkit_' | awk '{print $1}' | xargs -I '{}' psql postgresql://postgres:postgres@postgres:5432/ -c "DROP DATABASE \"{}\""
 
 mysql-list:
-    mysql -h mysql -u root -e "SHOW DATABASES" | grep testkit_ || echo "No testkit databases found"
+    mysql -h mysql -u root -p'root' -e "SHOW DATABASES" | grep testkit_ || echo "No testkit databases found"
 
 mysql-clean:
-    mysql -h mysql -u root -e "SHOW DATABASES" | grep testkit_ > /tmp/dbs.txt || echo "No testkit databases to clean"
+    mysql -h mysql -u root -p'root' -e "SHOW DATABASES" | grep testkit_ > /tmp/dbs.txt || echo "No testkit databases to clean"
     [ -s /tmp/dbs.txt ] && cat /tmp/dbs.txt | awk '{print "DROP DATABASE `" $$1 "`;"}' | mysql -h mysql -u root && echo "Cleaned testkit databases"
     rm -f /tmp/dbs.txt
