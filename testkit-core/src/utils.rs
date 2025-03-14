@@ -110,10 +110,7 @@ macro_rules! db_test {
 /// manual boxing.
 #[macro_export]
 macro_rules! setup {
-    ($backend:expr, |$conn:ident| $body:expr) => {
-        $crate::with_boxed_database($backend)
-            .setup(|$conn| $crate::boxed_async!($body))
-    };
+    $crate::with_boxed_database($backend).setup(|$conn| $crate::boxed_async!($body))
 }
 
 /// A macro to simplify running a transaction
@@ -122,10 +119,7 @@ macro_rules! setup {
 /// manual boxing.
 #[macro_export]
 macro_rules! transaction {
-    ($backend:expr, |$conn:ident| $body:expr) => {
-        $crate::with_boxed_database($backend)
-            .with_transaction(|$conn| $crate::boxed_async!($body))
-    };
+    $crate::with_boxed_database($backend).with_transaction(|$conn| $crate::boxed_async!($body))
 }
 
 /// A macro to simplify both setup and transaction phases
@@ -134,7 +128,7 @@ macro_rules! transaction {
 /// requiring manual boxing.
 #[macro_export]
 macro_rules! setup_and_transaction {
-    ($backend:expr, 
+    ($backend:expr,
      setup: |$setup_conn:ident| $setup_body:expr,
      transaction: |$tx_conn:ident| $tx_body:expr) => {
         $crate::with_boxed_database($backend)
