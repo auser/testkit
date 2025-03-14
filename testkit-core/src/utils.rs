@@ -109,8 +109,12 @@ macro_rules! db_test {
 /// This macro provides a cleaner API for the setup phase without requiring
 /// manual boxing.
 #[macro_export]
+#[rustfmt::skip]
 macro_rules! setup {
-    $crate::with_boxed_database($backend).setup(|$conn| $crate::boxed_async!($body))
+    ($backend:expr, |$conn:ident| $body:expr) => {
+        $crate::with_boxed_database($backend)
+            .setup(|$conn| $crate::boxed_async!($body))
+    };
 }
 
 /// A macro to simplify running a transaction
@@ -118,8 +122,12 @@ macro_rules! setup {
 /// This macro provides a cleaner API for the transaction phase without requiring
 /// manual boxing.
 #[macro_export]
+#[rustfmt::skip]
 macro_rules! transaction {
-    $crate::with_boxed_database($backend).with_transaction(|$conn| $crate::boxed_async!($body))
+    ($backend:expr, |$conn:ident| $body:expr) => {
+        $crate::with_boxed_database($backend)
+            .with_transaction(|$conn| $crate::boxed_async!($body))
+    };
 }
 
 /// A macro to simplify both setup and transaction phases
@@ -127,8 +135,9 @@ macro_rules! transaction {
 /// This macro provides a cleaner API for both setup and transaction phases without
 /// requiring manual boxing.
 #[macro_export]
+#[rustfmt::skip]
 macro_rules! setup_and_transaction {
-    ($backend:expr,
+    ($backend:expr, 
      setup: |$setup_conn:ident| $setup_body:expr,
      transaction: |$tx_conn:ident| $tx_body:expr) => {
         $crate::with_boxed_database($backend)
