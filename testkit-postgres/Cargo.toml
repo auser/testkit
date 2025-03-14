@@ -4,11 +4,13 @@ version = "0.1.0"
 edition = "2024"
 description = "PostgreSQL support for the testkit database testing library"
 license = "MIT"
+authors = ["Ari Lerner <me@ari.io>"]
+repository = "https://github.com/auser/testkit"
 
 [dependencies]
-testkit-core = { path = "../testkit-core" }
+testkit-core = { path = "../testkit-core", version = "0.1.0" }
 async-trait = "0.1"
-thiserror = "1.0"
+thiserror = "2.0"
 tracing = "0.1"
 futures = "0.3"
 uuid = { version = "1.6", features = ["v4"] }
