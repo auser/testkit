@@ -1,6 +1,6 @@
 [package]
 name = "testkit-mysql"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "MySQL support for the testkit database testing library"
 license = "MIT"

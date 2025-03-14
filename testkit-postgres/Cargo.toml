@@ -1,6 +1,6 @@
 [package]
 name = "testkit-postgres"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "PostgreSQL support for the testkit database testing library"
 license = "MIT"
