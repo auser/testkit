@@ -15,6 +15,9 @@ pub struct GlobalArgs {
 
     // #[clap(short, long, global = true)]
     // password: Option<String>,
+    #[clap(short = 'D', long, global = true, env = "RUST_ENV")]
+    debug: bool,
+
     #[clap(short, long, global = true, env = "DATABASE_URL")]
     connection_url: Option<String>,
 
@@ -66,14 +69,16 @@ fn list_databases(args: &GlobalArgs) {
     let database_type = &args.database_type;
     let connection_url = args.connection_url.clone().unwrap_or_default();
     let connection = get_root_url(&connection_url);
+    let debug = args.debug;
 
     match database_type {
-        DatabaseType::Postgres => list_postgres_databases(&connection, &args.prefix),
-        DatabaseType::Mysql => list_mysql_databases(&connection, &args.prefix),
+        DatabaseType::Postgres => list_postgres_databases(&connection, &args.prefix, debug),
+        DatabaseType::Mysql => list_mysql_databases(&connection, &args.prefix, debug),
     }
 }
 
 fn reset_databases(args: &GlobalArgs) {
+    let debug = args.debug;
     // Parse the connection URL if provided
     let connection = match &args.connection_url {
         Some(url) => get_root_url(url),
@@ -91,19 +96,19 @@ fn reset_databases(args: &GlobalArgs) {
     };
 
     match args.database_type {
-        DatabaseType::Postgres => reset_postgres_databases(&connection, &args.prefix),
-        DatabaseType::Mysql => reset_mysql_databases(&connection, &args.prefix),
+        DatabaseType::Postgres => reset_postgres_databases(&connection, &args.prefix, debug),
+        DatabaseType::Mysql => reset_mysql_databases(&connection, &args.prefix, debug),
     }
 }
 
-fn reset_postgres_databases(connection: &DBConnection, prefix: &str) {
+fn reset_postgres_databases(connection: &DBConnection, prefix: &str, debug: bool) {
     // First, get a list of all databases matching the prefix
     let query = format!(
         "SELECT datname FROM pg_database WHERE datname LIKE '{}%';",
         prefix
     );
 
-    match psql_command(connection, &query) {
+    match psql_command(connection, &query, debug) {
         Ok(output) => {
             let databases = output
                 .lines()
@@ -126,7 +131,7 @@ fn reset_postgres_databases(connection: &DBConnection, prefix: &str) {
             for db in databases {
                 let drop_query = format!("DROP DATABASE \"{}\";", db);
 
-                match psql_command(connection, &drop_query) {
+                match psql_command(connection, &drop_query, debug) {
                     Ok(_) => println!("Successfully dropped database: {}", db),
                     Err(e) => {
                         println!("Failed to drop database {}: {}", db, e);
@@ -145,7 +150,7 @@ fn reset_postgres_databases(connection: &DBConnection, prefix: &str) {
     }
 }
 
-fn reset_mysql_databases(connection: &DBConnection, prefix: &str) {
+fn reset_mysql_databases(connection: &DBConnection, prefix: &str, debug: bool) {
     // First, get a list of all databases matching the prefix using information_schema
     let query = format!(
         "SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE '{}%'",
@@ -153,7 +158,7 @@ fn reset_mysql_databases(connection: &DBConnection, prefix: &str) {
     );
     println!("Finding MySQL databases with prefix: {}", prefix);
 
-    match mysql_command(connection, &query) {
+    match mysql_command(connection, &query, debug) {
         Ok(output) => {
             // Process the schema names
             let databases = output
@@ -180,7 +185,7 @@ fn reset_mysql_databases(connection: &DBConnection, prefix: &str) {
                 let drop_query = format!("DROP DATABASE `{}`", db);
                 println!("Executing: {}", drop_query);
 
-                match mysql_command(connection, &drop_query) {
+                match mysql_command(connection, &drop_query, debug) {
                     Ok(_) => println!("Successfully dropped database: {}", db),
                     Err(e) => {
                         println!("Failed to drop database {}: {}", db, e);
@@ -199,14 +204,14 @@ fn reset_mysql_databases(connection: &DBConnection, prefix: &str) {
     }
 }
 
-fn list_postgres_databases(connection: &DBConnection, prefix: &str) {
+fn list_postgres_databases(connection: &DBConnection, prefix: &str, debug: bool) {
     // Format the SQL query with the prefix directly in the string
     let query = format!(
         "SELECT datname FROM pg_database WHERE datname LIKE '{}%'",
         prefix
     );
 
-    let output = psql_command(connection, &query);
+    let output = psql_command(connection, &query, debug);
 
     match output {
         Ok(output) => {
@@ -233,14 +238,14 @@ fn list_postgres_databases(connection: &DBConnection, prefix: &str) {
     }
 }
 
-fn list_mysql_databases(connection: &DBConnection, prefix: &str) {
+fn list_mysql_databases(connection: &DBConnection, prefix: &str, debug: bool) {
     // Format the query to use information_schema instead of SHOW DATABASES
     let query = format!(
         "SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE '{}%'",
         prefix
     );
 
-    match mysql_command(connection, &query) {
+    match mysql_command(connection, &query, debug) {
         Ok(output) => {
             // Process the output, which is just schema names without headers
             let databases = output
@@ -266,14 +271,16 @@ fn list_mysql_databases(connection: &DBConnection, prefix: &str) {
     }
 }
 
-fn psql_command(connection: &DBConnection, query: &str) -> Result<String, String> {
+fn psql_command(connection: &DBConnection, query: &str, debug: bool) -> Result<String, String> {
     // First, print all connection details (with password masked)
-    println!("Connection details:");
-    println!("  - Host: {}", connection.host);
-    println!("  - Port: {:?}", connection.port);
-    println!("  - User: {:?}", connection.user);
-    println!("  - Has password: {}", connection.password.is_some());
-    println!("  - Database: {:?}", connection.database);
+    if debug {
+        println!("Connection details:");
+        println!("  - Host: {}", connection.host);
+        println!("  - Port: {:?}", connection.port);
+        println!("  - User: {:?}", connection.user);
+        println!("  - Has password: {}", connection.password.is_some());
+        println!("  - Database: {:?}", connection.database);
+    }
 
     let args = vec![
         "-h".to_string(),
@@ -292,7 +299,9 @@ fn psql_command(connection: &DBConnection, query: &str) -> Result<String, String
     ];
 
     // Print the actual command for debugging
-    println!("Debug: Running command: psql {}", args.join(" "));
+    if debug {
+        println!("Debug: Running command: psql {}", args.join(" "));
+    }
 
     // Create command and set environment variable for password if needed
     let mut cmd = Command::new("psql");
@@ -323,7 +332,7 @@ fn psql_command(connection: &DBConnection, query: &str) -> Result<String, String
     }
 }
 
-fn mysql_command(connection: &DBConnection, query: &str) -> Result<String, String> {
+fn mysql_command(connection: &DBConnection, query: &str, _debug: bool) -> Result<String, String> {
     let mut args = vec![
         "-h".to_string(),
         connection.host.clone(),
