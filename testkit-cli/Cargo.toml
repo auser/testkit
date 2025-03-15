@@ -9,8 +9,8 @@ repository = "https://github.com/auser/testkit"
 
 [dependencies]
 clap = { version = "4.5.31", features = ["derive", "env"] }
-testkit-mysql = { path = "../testkit-mysql" }
-testkit-postgres = { path = "../testkit-postgres" }
+testkit-mysql = { path = "../testkit-mysql", version = "0.1.1" }
+testkit-postgres = { path = "../testkit-postgres", version = "0.1.1" }
 
 [[bin]]
 name = "testkit"
