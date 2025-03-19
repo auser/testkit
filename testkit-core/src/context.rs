@@ -82,7 +82,6 @@ where
         // let tx = conn.begin().await?;
         // Ok(tx)
 
-        // As a placeholder, we'll return an error
         Err(From::from(
             "Transaction implementation is database-specific and must be provided for each backend"
                 .to_string(),

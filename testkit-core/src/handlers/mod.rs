@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
-use crate::testdb::{DatabaseBackend, DatabaseConfig};
+use crate::{DatabaseBackend, DatabaseConfig};
 
 pub mod boxed;
 mod setup;
@@ -59,11 +59,16 @@ where
 /// capturing variables from the environment.
 ///
 /// # Example:
-/// ```rust,no_run,ignore
+/// ```rust,ignore
 /// use testkit_core::*;
+/// use testkit_core::DatabaseConfig;
 ///
 /// async fn test() -> Result<(), Box<dyn std::error::Error>> {
-///     let backend = testkit_core::testdb::tests::MockBackend::new();
+///     // Create a configuration for the database
+///     let config = DatabaseConfig::default();
+///     
+///     // Create a backend with the configuration
+///     let backend = MockBackend::new(config).await?;
 ///     
 ///     // This local variable would cause lifetime issues with a non-boxed API
 ///     let table_name = "users".to_string();
@@ -82,6 +87,15 @@ where
 ///        .execute()
 ///        .await?;
 ///     Ok(())
+/// }
+///
+/// // Mock backend definition that would be provided by the user
+/// struct MockBackend;
+///
+/// impl MockBackend {
+///     async fn new(_config: DatabaseConfig) -> Result<Self, Box<dyn std::error::Error>> {
+///         Ok(Self)
+///     }
 /// }
 /// ```
 // Re-export boxed API as the primary API
@@ -113,7 +127,7 @@ where
     {
         // Create a context with the provided database
         let config = DatabaseConfig::default();
-        let db_instance = crate::testdb::TestDatabaseInstance::new(backend, config).await?;
+        let db_instance = crate::TestDatabaseInstance::new(backend, config).await?;
         let mut ctx = crate::TestContext::new(db_instance);
 
         // Execute with the new context
@@ -195,7 +209,7 @@ where
         Self: Sized,
     {
         let config = DatabaseConfig::default();
-        let db_instance = crate::testdb::TestDatabaseInstance::new(backend, config).await?;
+        let db_instance = crate::TestDatabaseInstance::new(backend, config).await?;
         let mut ctx = crate::TestContext::new(db_instance);
 
         self.execute(&mut ctx).await?;

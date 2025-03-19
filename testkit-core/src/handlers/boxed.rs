@@ -37,7 +37,7 @@ pub type BoxedTransactionFn<DB> = Box<
 /// to easily create boxed async blocks.
 pub struct BoxedDatabaseEntryPoint<DB>
 where
-    DB: DatabaseBackend + Send + Sync + Debug + 'static,
+    DB: DatabaseBackend + Send + Sync + 'static,
 {
     backend: DB,
 }
@@ -64,7 +64,7 @@ where
 /// Handler that stores just a transaction function without setup
 pub struct BoxedTransactionOnlyHandler<DB>
 where
-    DB: DatabaseBackend + Send + Sync + Debug + 'static,
+    DB: DatabaseBackend + Send + Sync + 'static,
 {
     backend: DB,
     transaction_fn: BoxedTransactionFn<DB>,
@@ -72,7 +72,7 @@ where
 
 impl<DB> BoxedDatabaseEntryPoint<DB>
 where
-    DB: DatabaseBackend + Send + Sync + Debug + 'static,
+    DB: DatabaseBackend + Send + Sync + 'static,
 {
     /// Create a new entry point with the given backend
     pub fn new(backend: DB) -> Self {
@@ -376,6 +376,7 @@ where
 ///
 /// This function creates a new entry point for working with databases.
 /// Use the `boxed_async!` macro with `setup` and `with_transaction` to avoid lifetime issues.
+#[rustfmt::skip]
 pub fn with_boxed_database<DB>(backend: DB) -> BoxedDatabaseEntryPoint<DB>
 where
     DB: DatabaseBackend + Send + Sync + Debug + 'static,
@@ -387,6 +388,7 @@ where
 ///
 /// This function creates a new entry point for working with databases.
 /// Use the `boxed_async!` macro with `setup` and `with_transaction` to avoid lifetime issues.
+#[rustfmt::skip]
 pub fn with_boxed_database_config<DB>(
     backend: DB,
     _config: DatabaseConfig,
