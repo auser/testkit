@@ -24,6 +24,35 @@ The following feature flags are available:
   
 **Note:** The `with-tokio-postgres` and `with-sqlx` features are mutually exclusive. Only enable one of these features at a time.
 
+## Command Line Interface (CLI)
+
+TestKit includes a command-line tool for managing test databases:
+
+```bash
+# List all test databases with prefix "testkit"
+export DATABASE_URL="postgres://postgres:postgres@localhost:5432/postgres"
+testkit list -d postgres --prefix testkit
+
+# List all test MySQL databases
+export DATABASE_URL="mysql://root:root@localhost:3306/mysql"
+testkit list -d mysql --prefix testkit
+
+# Reset (drop) all test databases with prefix "testkit"
+export DATABASE_URL="postgres://postgres:postgres@localhost:5432/postgres"
+testkit reset --prefix testkit
+```
+
+The CLI supports both PostgreSQL and MySQL databases and provides useful commands for:
+
+- **Listing** test databases to see which ones exist
+- **Resetting** (dropping) test databases to clean up after test runs
+- **Debugging** connection issues with detailed output
+
+This is particularly useful for:
+- Cleaning up orphaned test databases after failed test runs
+- Managing test databases in CI/CD environments
+- Troubleshooting database connection issues
+
 ### Environment Variables
 
 The library uses the following environment variables for configuration:
@@ -277,8 +306,10 @@ use testkit_postgres::postgres_backend_with_config;
 async fn test_database_operations() {
     // Create a PostgreSQL backend
     let config = DatabaseConfig::new(
+        // Admin connection
         "postgres://postgres:postgres@localhost:5432/postgres",
-        "postgres://postgres:postgres@localhost:5432/postgres",
+        // User connection
+        "postgres://postgres:postgres@localhost:5432/app_database",
     );
     let backend = postgres_backend_with_config(config).await.unwrap();
     
