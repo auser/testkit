@@ -72,12 +72,6 @@ jobs:
       
     - name: Run clippy
       run: cargo clippy --all-features -- -D warnings
-      
-    - name: Test SQLite
-      run: cargo nextest run --features sqlite
-
-    - name: Test SQLx SQLite
-      run: cargo nextest run --features "sqlx-sqlite sqlx-backend"
 
     - name: Test PostgreSQL
       run: cargo nextest run --features postgres

@@ -1,6 +1,6 @@
 #![cfg(feature = "with-sqlx")]
-use sqlx::{query, query_as};
-use testkit_core::{DatabaseConfig, with_boxed_database};
+use sqlx::{Row, query, query_as};
+use testkit_core::{DatabaseConfig, DatabasePool, boxed_async, with_boxed_database};
 use testkit_mysql::{MySqlError, sqlx_mysql_backend_with_config};
 
 fn test_config() -> DatabaseConfig {
@@ -28,7 +28,7 @@ fn is_connection_error(err: &MySqlError) -> bool {
 #[tokio::test]
 async fn test_sqlx_backend_creation() {
     let config = test_config();
-    let backend = match sqlx_mysql_backend_with_config(config).await {
+    match sqlx_mysql_backend_with_config(config).await {
         Ok(backend) => backend,
         Err(e) => {
             if is_connection_error(&e) {
@@ -38,9 +38,6 @@ async fn test_sqlx_backend_creation() {
             panic!("Failed to create MySQL backend: {:?}", e);
         }
     };
-
-    // Basic assertion to ensure backend was created
-    assert!(true, "Backend created successfully");
 }
 
 #[tokio::test]
@@ -59,15 +56,17 @@ async fn test_sqlx_backend_with_table() {
 
     // Test creating a database
     let ctx = match with_boxed_database(backend)
-        .setup(|conn| async move {
-            // Create a test table
-            query(
+        .setup(|conn| {
+            boxed_async!(async move {
+                // Create a test table
+                query(
                 "CREATE TABLE test_table (id INT AUTO_INCREMENT PRIMARY KEY, value VARCHAR(255))",
             )
-            .execute(&**conn.client())
+            .execute(&*conn.pool())
             .await
             .unwrap();
-            Ok(())
+                Ok(())
+            })
         })
         .execute()
         .await
@@ -88,13 +87,13 @@ async fn test_sqlx_backend_with_table() {
     // Insert some data
     query("INSERT INTO test_table (value) VALUES (?)")
         .bind("test value")
-        .execute(&**conn.client())
+        .execute(&*conn.pool())
         .await
         .unwrap();
 
     // Query the data with type mapping
     let row = query("SELECT id, value FROM test_table")
-        .fetch_one(&**conn.client())
+        .fetch_one(&*conn.pool())
         .await
         .unwrap();
 
@@ -121,23 +120,23 @@ async fn test_sqlx_transaction() {
 
     // Test database with transaction
     let ctx = match with_boxed_database(backend)
-        .setup(|conn| async move {
+        .setup(|conn| boxed_async!(async move {
             // Create a test table
             query("CREATE TABLE test_transaction (id INT AUTO_INCREMENT PRIMARY KEY, value VARCHAR(255))")
-                .execute(&**conn.client())
+                .execute(&*conn.pool())
                 .await
                 .unwrap();
             Ok(())
-        })
-        .with_transaction(|conn| async move {
+        }))
+        .with_transaction(|conn| boxed_async!(async move {
             // This data will be rolled back after the test
             query("INSERT INTO test_transaction (value) VALUES (?)")
                 .bind("will be rolled back")
-                .execute(&**conn.client())
+                .execute(&*conn.pool())
                 .await
                 .unwrap();
             Ok(())
-        })
+        }))
         .execute()
         .await
     {
@@ -155,7 +154,7 @@ async fn test_sqlx_transaction() {
     let conn = ctx.db.pool.acquire().await.unwrap();
 
     let row = query_as::<_, (i64,)>("SELECT COUNT(*) FROM test_transaction")
-        .fetch_one(&**conn.client())
+        .fetch_one(&*conn.pool())
         .await
         .unwrap();
 
@@ -194,20 +193,20 @@ async fn test_multiple_sqlx_databases() {
 
     // Set up first database
     let ctx1 = match with_boxed_database(backend1)
-        .setup(|conn| async move {
+        .setup(|conn| boxed_async!(async move {
             query("CREATE TABLE db1_table (id INT AUTO_INCREMENT PRIMARY KEY, value VARCHAR(255))")
-                .execute(&**conn.client())
+                .execute(&*conn.pool())
                 .await
                 .unwrap();
 
             query("INSERT INTO db1_table (value) VALUES (?)")
                 .bind("db1 value")
-                .execute(&**conn.client())
+                .execute(&*conn.pool())
                 .await
                 .unwrap();
 
             Ok(())
-        })
+        }))
         .execute()
         .await
     {
@@ -223,20 +222,20 @@ async fn test_multiple_sqlx_databases() {
 
     // Set up second database
     let ctx2 = match with_boxed_database(backend2)
-        .setup(|conn| async move {
+        .setup(|conn| boxed_async!(async move {
             query("CREATE TABLE db2_table (id INT AUTO_INCREMENT PRIMARY KEY, value VARCHAR(255))")
-                .execute(&**conn.client())
+                .execute(&*conn.pool())
                 .await
                 .unwrap();
 
             query("INSERT INTO db2_table (value) VALUES (?)")
                 .bind("db2 value")
-                .execute(&**conn.client())
+                .execute(&*conn.pool())
                 .await
                 .unwrap();
 
             Ok(())
-        })
+        }))
         .execute()
         .await
     {
@@ -254,7 +253,7 @@ async fn test_multiple_sqlx_databases() {
     let conn1 = ctx1.db.pool.acquire().await.unwrap();
 
     let row1 = query_as::<_, (String,)>("SELECT value FROM db1_table")
-        .fetch_one(&**conn1.client())
+        .fetch_one(&*conn1.pool())
         .await
         .unwrap();
 
@@ -262,7 +261,7 @@ async fn test_multiple_sqlx_databases() {
 
     // Try to access the second database's table (should fail)
     let result = query("SELECT * FROM db2_table")
-        .execute(&**conn1.client())
+        .execute(&*conn1.pool())
         .await;
 
     assert!(
@@ -274,7 +273,7 @@ async fn test_multiple_sqlx_databases() {
     let conn2 = ctx2.db.pool.acquire().await.unwrap();
 
     let row2 = query_as::<_, (String,)>("SELECT value FROM db2_table")
-        .fetch_one(&**conn2.client())
+        .fetch_one(&*conn2.pool())
         .await
         .unwrap();
 
@@ -282,7 +281,7 @@ async fn test_multiple_sqlx_databases() {
 
     // Try to access the first database's table (should fail)
     let result = query("SELECT * FROM db1_table")
-        .execute(&**conn2.client())
+        .execute(&*conn2.pool())
         .await;
 
     assert!(
@@ -307,14 +306,14 @@ async fn test_sqlx_prepared_statements() {
 
     // Test creating a database
     let ctx = match with_boxed_database(backend)
-        .setup(|conn| async move {
+        .setup(|conn| boxed_async!(async move {
             // Create a test table
             query("CREATE TABLE users (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255), email VARCHAR(255), age INT)")
-                .execute(&**conn.client())
+                .execute(&*conn.pool())
                 .await
                 .unwrap();
             Ok(())
-        })
+        }))
         .execute()
         .await
     {
@@ -341,7 +340,7 @@ async fn test_sqlx_prepared_statements() {
             .bind(name)
             .bind(email)
             .bind(age)
-            .execute(&**conn.client())
+            .execute(&*conn.pool())
             .await
             .unwrap();
     }
@@ -350,7 +349,7 @@ async fn test_sqlx_prepared_statements() {
     let rows =
         query_as::<_, (String, i32)>("SELECT name, age FROM users WHERE age > ? ORDER BY age")
             .bind(27)
-            .fetch_all(&**conn.client())
+            .fetch_all(&*conn.pool())
             .await
             .unwrap();
 

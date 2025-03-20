@@ -1,12 +1,10 @@
 #![cfg(feature = "with-sqlx")]
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use sqlx::mysql::{MySqlPoolOptions, MySqlQueryResult, MySqlRow};
-use sqlx::pool::PoolConnection;
-use sqlx::{MySql, MySqlPool as SqlxPool, Pool, query, query_as};
-use url::Url;
+use sqlx::mysql::{MySqlPoolOptions, MySqlQueryResult};
+use sqlx::{MySqlPool as SqlxPool, query};
 
 use testkit_core::{
     DatabaseBackend, DatabaseConfig, DatabaseName, DatabasePool, TestDatabaseConnection,
@@ -17,8 +15,8 @@ use crate::error::MySqlError;
 /// A MySQL connection using SQLx
 #[derive(Clone)]
 pub struct SqlxMySqlConnection {
-    /// The connection to the database
-    conn: Arc<PoolConnection<MySql>>,
+    /// The connection to the database - using direct pool access is safer than trying to hold a connection
+    pool: Arc<SqlxPool>,
     /// The connection string used to create this connection
     connection_string: String,
 }
@@ -30,45 +28,35 @@ impl SqlxMySqlConnection {
             .await
             .map_err(|e| MySqlError::ConnectionError(e.to_string()))?;
 
-        let conn = pool
-            .acquire()
-            .await
-            .map_err(|e| MySqlError::ConnectionError(e.to_string()))?;
-
         Ok(Self {
-            conn: Arc::new(conn),
+            pool: Arc::new(pool),
             connection_string,
         })
     }
 
-    /// Get a reference to the connection
-    pub fn client(&self) -> &PoolConnection<MySql> {
-        &self.conn
-    }
-
     /// Execute a query on the connection
-    pub async fn execute<Q: AsRef<str>>(
-        &self,
-        query: Q,
-        params: &[sqlx::mysql::MySqlArguments],
-    ) -> Result<MySqlQueryResult, MySqlError> {
+    pub async fn execute<Q: AsRef<str>>(&self, query: Q) -> Result<MySqlQueryResult, MySqlError> {
         let query_str = query.as_ref();
         sqlx::query(query_str)
-            .execute(&**self.conn)
+            .execute(&*self.pool)
             .await
             .map_err(|e| MySqlError::QueryExecutionError(e.to_string()))
-    }
-
-    /// Start a transaction
-    pub async fn begin_transaction(&self) -> Result<sqlx::Transaction<'_, MySql>, MySqlError> {
-        sqlx::Acquire::begin(&**self.conn)
-            .await
-            .map_err(|e| MySqlError::TransactionError(e.to_string()))
     }
 
     /// Get the connection string
     pub fn connection_string(&self) -> &str {
         &self.connection_string
+    }
+
+    /// Get access to the pool for executing queries
+    pub fn pool(&self) -> &SqlxPool {
+        &self.pool
+    }
+}
+
+impl TestDatabaseConnection for SqlxMySqlConnection {
+    fn connection_string(&self) -> String {
+        self.connection_string.clone()
     }
 }
 
@@ -87,16 +75,19 @@ impl DatabasePool for SqlxMySqlPool {
     type Error = MySqlError;
 
     async fn acquire(&self) -> Result<Self::Connection, Self::Error> {
-        let conn = self
-            .pool
-            .acquire()
-            .await
-            .map_err(|e| MySqlError::ConnectionError(e.to_string()))?;
-
         Ok(SqlxMySqlConnection {
-            conn: Arc::new(conn),
+            pool: self.pool.clone(),
             connection_string: self.connection_string.clone(),
         })
+    }
+
+    async fn release(&self, _conn: Self::Connection) -> Result<(), Self::Error> {
+        // Connection will be dropped when it goes out of scope
+        Ok(())
+    }
+
+    fn connection_string(&self) -> String {
+        self.connection_string.clone()
     }
 }
 
@@ -162,10 +153,6 @@ impl DatabaseBackend for SqlxMySqlBackend {
         _pool: &Self::Pool,
         name: &DatabaseName,
     ) -> Result<(), Self::Error> {
-        // Parse the admin URL to extract connection parameters
-        let url = url::Url::parse(&self.config.admin_url)
-            .map_err(|e| MySqlError::ConfigError(e.to_string()))?;
-
         // Connect to the default/admin database
         let admin_pool = MySqlPoolOptions::new()
             .max_connections(1)
@@ -215,12 +202,10 @@ impl DatabaseBackend for SqlxMySqlBackend {
     fn connection_string(&self, name: &DatabaseName) -> String {
         // Parse the user URL
         let mut url = url::Url::parse(&self.config.user_url).expect("Invalid database URL");
-
-        // Update the path to include the database name
-        let db_name = name.as_str();
-        let path_segments = url.path_segments_mut().expect("Cannot modify URL path");
-        path_segments.clear().push(db_name);
-
+        {
+            let mut path_segments = url.path_segments_mut().expect("Cannot modify URL path");
+            path_segments.clear().push(name.as_str());
+        }
         url.to_string()
     }
 }
