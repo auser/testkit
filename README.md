@@ -18,6 +18,10 @@ The following feature flags are available:
 
 For postgres:
 
+```bash
+cargo add testkit-postgres
+```
+
 - **Default Features:**
   - **`with-tokio-postgres`** - Enables PostgreSQL support via tokio-postgres (enabled by default)
 
@@ -25,6 +29,10 @@ For postgres:
   - **`with-sqlx`** - Enables PostgreSQL support via SQLx
 
 For mysql:
+
+```bash
+cargo add testkit-mysql
+```
 
 - **Default Features:**
   - **`with-mysql-native-tls`** - Enables MySQL support via mysql-native-tls (enabled by default)
@@ -41,12 +49,6 @@ TestKit includes a command-line tool for managing test databases. First, install
 ```bash
 # Install the CLI tool
 cargo add testkit-cli
-
-# Install PostgreSQL support
-cargo add testkit-postgres --features with-tokio-postgres
-
-# Install MySQL support
-cargo add testkit-mysql --features with-mysql-async
 ```
 
 After installation, you can use the CLI:
